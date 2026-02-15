@@ -113,11 +113,21 @@ class _ParticipantCard(ctk.CTkFrame):
         self._status_label = ctk.CTkLabel(
             self, text="状態: 待機中", anchor="w", text_color="gray"
         )
-        self._status_label.grid(row=3, column=0, sticky="w", padx=8, pady=(0, 6))
+        self._status_label.grid(row=3, column=0, sticky="w", padx=8)
+
+        # 心情絵文字
+        self._emoji_label = ctk.CTkLabel(
+            self, text="", font=ctk.CTkFont(size=20), anchor="w"
+        )
+        self._emoji_label.grid(row=4, column=0, sticky="w", padx=8, pady=(0, 6))
 
     def set_status(self, status: str) -> None:
         color = self._STATUS_COLORS.get(status, "gray")
         self._status_label.configure(text=f"状態: {status}", text_color=color)
+
+    def set_emoji(self, emoji: str) -> None:
+        """心情絵文字を更新する。"""
+        self._emoji_label.configure(text=emoji)
 
 
 class _LoadingIndicator(ctk.CTkFrame):
@@ -394,10 +404,15 @@ class DebateView(ctk.CTkFrame):
         # ラウンド表示更新
         self._update_round_display()
 
-        # カードのステータス更新
+        # カードのステータス更新 + 心情絵文字
         card = self._participant_cards.get(participant.id)
         if card:
             card.set_status("待機中")
+            if message.message_type != MessageType.SKIP:
+                from src.utils.sentiment import analyze_sentiment
+
+                emoji = analyze_sentiment(message.content)
+                card.set_emoji(emoji)
 
     def _ui_on_turn_start(self, participant: Participant) -> None:
         """ターン開始時のUI更新。"""

@@ -534,28 +534,37 @@ class HistoryView(ctk.CTkFrame):
         if self._selected_debate is None:
             return
 
+        debate_id = self._selected_debate.id
+
+        # DB削除
         try:
             if self._app and hasattr(self._app, "history_service") and self._app.history_service:
-                self._app.history_service.delete_debate(self._selected_debate.id)
-
-            # 添付ファイルも削除
-            if self._app and hasattr(self._app, "attachment_service") and self._app.attachment_service:
-                self._app.attachment_service.delete_debate_files(self._selected_debate.id)
-
-            self._selected_debate = None
-
-            # 詳細エリアをクリア
-            for child in self._detail_scroll.winfo_children():
-                child.destroy()
-            self._thinking_panels.clear()
-            self._detail_title.configure(text="ディベートを選択してください")
-            self._export_btn.configure(state="disabled")
-            self._delete_btn.configure(state="disabled")
-
-            # リスト再読み込み
-            self._load_debates()
+                self._app.history_service.delete_debate(debate_id)
         except Exception as e:
             self._show_error(f"削除エラー: {e}")
+            return
+
+        # 添付ファイル削除（ベストエフォート）
+        try:
+            if self._app and hasattr(self._app, "attachment_service") and self._app.attachment_service:
+                self._app.attachment_service.delete_debate_files(debate_id)
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).warning("添付ファイル削除エラー: %s", e)
+
+        self._selected_debate = None
+
+        # 詳細エリアをクリア
+        for child in self._detail_scroll.winfo_children():
+            child.destroy()
+        self._thinking_panels.clear()
+        self._detail_title.configure(text="ディベートを選択してください")
+        self._export_btn.configure(state="disabled")
+        self._delete_btn.configure(state="disabled")
+
+        # リスト再読み込み
+        self._load_debates()
 
     # ------------------------------------------------------------------
     # ダイアログ

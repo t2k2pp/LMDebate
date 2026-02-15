@@ -652,8 +652,17 @@ class SetupView(ctk.CTkFrame):
                     )
                     if hasattr(self._app, "history_service") and self._app.history_service:
                         self._app.history_service.save_attachment(attachment)
-        except Exception:
-            pass  # 添付失敗は致命的ではない
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).warning("添付ファイル保存エラー: %s", e)
+            from src.ui.dialogs import show_info
+
+            show_info(
+                self,
+                "警告",
+                f"一部の添付ファイルの保存に失敗しました:\n{e}\n\nディベートは添付なしで継続されます。",
+            )
 
     def _get_main_window(self):
         widget = self.master
