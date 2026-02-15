@@ -243,7 +243,7 @@ class HistoryView(ctk.CTkFrame):
                 debate=debate,
                 on_select=self._on_debate_selected,
             )
-            item.grid(row=idx, column=0, sticky="ew", padx=4, pady=2)
+            item.grid(row=idx, column=0, sticky="ew", padx=4, pady=4)
 
     # ------------------------------------------------------------------
     # 詳細表示
@@ -562,50 +562,19 @@ class HistoryView(ctk.CTkFrame):
     # ------------------------------------------------------------------
 
     def _show_info(self, msg: str) -> None:
-        dialog = ctk.CTkToplevel(self)
-        dialog.title("情報")
-        dialog.geometry("450x150")
-        dialog.transient(self.winfo_toplevel())
-        dialog.grab_set()
-        ctk.CTkLabel(dialog, text=msg, wraplength=400).pack(expand=True, padx=20, pady=20)
-        ctk.CTkButton(dialog, text="OK", command=dialog.destroy).pack(pady=(0, 16))
+        from src.ui.dialogs import show_info
+
+        show_info(self, "情報", msg)
 
     def _show_error(self, msg: str) -> None:
-        dialog = ctk.CTkToplevel(self)
-        dialog.title("エラー")
-        dialog.geometry("450x150")
-        dialog.transient(self.winfo_toplevel())
-        dialog.grab_set()
-        ctk.CTkLabel(dialog, text=msg, wraplength=400, text_color="red").pack(
-            expand=True, padx=20, pady=20
-        )
-        ctk.CTkButton(dialog, text="OK", command=dialog.destroy).pack(pady=(0, 16))
+        from src.ui.dialogs import show_error
+
+        show_error(self, msg)
 
     def _show_confirm(self, msg: str, on_confirm) -> None:
-        dialog = ctk.CTkToplevel(self)
-        dialog.title("確認")
-        dialog.geometry("450x180")
-        dialog.transient(self.winfo_toplevel())
-        dialog.grab_set()
+        from src.ui.dialogs import show_confirm
 
-        ctk.CTkLabel(dialog, text=msg, wraplength=400).pack(
-            expand=True, padx=20, pady=20
-        )
-
-        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
-        btn_frame.pack(pady=(0, 16))
-
-        ctk.CTkButton(
-            btn_frame, text="キャンセル", fg_color="gray40", command=dialog.destroy
-        ).pack(side="left", padx=8)
-
-        def confirm():
-            dialog.destroy()
-            on_confirm()
-
-        ctk.CTkButton(
-            btn_frame, text="削除", fg_color="red", hover_color="darkred", command=confirm
-        ).pack(side="left", padx=8)
+        show_confirm(self, msg, on_confirm, confirm_text="削除")
 
     # ------------------------------------------------------------------
     # ライフサイクル

@@ -172,7 +172,7 @@ class _ParticipantSection(ctk.CTkFrame):
         # --- プリセット読み取り専用表示 ---
         self._preset_display_frame = ctk.CTkFrame(self, fg_color="transparent")
         self._preset_display_frame.grid(
-            row=row, column=0, columnspan=3, sticky="ew", padx=16, pady=2
+            row=row, column=0, columnspan=3, sticky="ew", padx=12, pady=2
         )
         self._preset_display_frame.grid_columnconfigure(1, weight=1)
 
@@ -196,7 +196,7 @@ class _ParticipantSection(ctk.CTkFrame):
         # --- カスタム入力エリア（初期非表示）---
         self._custom_frame = ctk.CTkFrame(self, fg_color="transparent")
         self._custom_frame.grid(
-            row=row, column=0, columnspan=3, sticky="ew", padx=16, pady=2
+            row=row, column=0, columnspan=3, sticky="ew", padx=12, pady=2
         )
         self._custom_frame.grid_columnconfigure(1, weight=1)
 
@@ -664,14 +664,10 @@ class SetupView(ctk.CTkFrame):
         return None
 
     def _show_error(self, msg: str) -> None:
-        """簡易エラーダイアログ。"""
-        dialog = ctk.CTkToplevel(self)
-        dialog.title("エラー")
-        dialog.geometry("400x150")
-        dialog.transient(self.winfo_toplevel())
-        dialog.grab_set()
-        ctk.CTkLabel(dialog, text=msg, wraplength=360).pack(expand=True, padx=20, pady=20)
-        ctk.CTkButton(dialog, text="OK", command=dialog.destroy).pack(pady=(0, 16))
+        """エラーダイアログ。"""
+        from src.ui.dialogs import show_error
+
+        show_error(self, msg)
 
     def on_show(self) -> None:
         """ビュー表示時にサブセクションのプリセット等を再読み込みする。"""

@@ -280,7 +280,7 @@ class DebateView(ctk.CTkFrame):
         self._send_btn = ctk.CTkButton(
             self._input_frame, text="送信", width=80, command=self._on_send, state="disabled"
         )
-        self._send_btn.grid(row=1, column=1, padx=2, pady=4)
+        self._send_btn.grid(row=1, column=1, padx=4, pady=4)
 
         self._skip_btn = ctk.CTkButton(
             self._input_frame,
@@ -291,7 +291,7 @@ class DebateView(ctk.CTkFrame):
             command=self._on_skip,
             state="disabled",
         )
-        self._skip_btn.grid(row=1, column=2, padx=(2, 8), pady=4)
+        self._skip_btn.grid(row=1, column=2, padx=(4, 8), pady=4)
 
         self._timer_label = ctk.CTkLabel(
             self._input_frame, text="", text_color="gray", anchor="w"
@@ -334,7 +334,7 @@ class DebateView(ctk.CTkFrame):
 
         for idx, p in enumerate(participants):
             card = _ParticipantCard(self._cards_frame, p)
-            card.grid(row=idx, column=0, sticky="ew", pady=2)
+            card.grid(row=idx, column=0, sticky="ew", pady=4)
             self._participant_cards[p.id] = card
 
     def _clear_chat(self) -> None:
@@ -600,7 +600,18 @@ class DebateView(ctk.CTkFrame):
             self._pause_btn.configure(text="再開")
 
     def _on_stop(self) -> None:
-        """終了ボタン。"""
+        """終了ボタン（確認ダイアログ付き）。"""
+        from src.ui.dialogs import show_confirm
+
+        show_confirm(
+            self,
+            "ディベートを終了しますか？\nこの操作は取り消せません。",
+            self._do_stop,
+            confirm_text="終了",
+        )
+
+    def _do_stop(self) -> None:
+        """実際のディベート終了処理。"""
         if self._app and hasattr(self._app, "debate_service") and self._app.debate_service:
             self._app.debate_service.stop_debate()
 
