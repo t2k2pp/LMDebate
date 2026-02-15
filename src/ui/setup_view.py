@@ -328,11 +328,35 @@ class _ParticipantSection(ctk.CTkFrame):
     # ---- コールバック ----
 
     def _on_type_changed(self) -> None:
-        """担当タイプ切替時にLLMコンボの有効/無効を制御する。"""
-        if self._type_var.get() == "human":
+        """担当タイプ切替時にLLM関連コントロールの有効/無効を制御する。"""
+        is_human = self._type_var.get() == "human"
+
+        if is_human:
+            # 人間の場合: LLM関連コントロールを全て無効化
             self._llm_combo.configure(state="disabled")
+            self._preset_combo.configure(state="disabled")
+            self._custom_toggle_btn.configure(state="disabled")
+            self._max_tokens_entry.configure(state="disabled")
+            self._include_thinking_cb.configure(state="disabled")
+            self._custom_role_desc.configure(state="disabled")
+            self._custom_personality.configure(state="disabled")
+            self._custom_guidelines.configure(state="disabled")
         else:
+            # LLM の場合: コントロールを有効化（カスタムモードに応じて復元）
             self._llm_combo.configure(state="normal")
+            self._max_tokens_entry.configure(state="normal")
+            self._include_thinking_cb.configure(state="normal")
+            self._custom_toggle_btn.configure(state="normal")
+            if self._is_custom_mode:
+                self._preset_combo.configure(state="disabled")
+                self._custom_role_desc.configure(state="normal")
+                self._custom_personality.configure(state="normal")
+                self._custom_guidelines.configure(state="normal")
+            else:
+                self._preset_combo.configure(state="normal")
+                self._custom_role_desc.configure(state="disabled")
+                self._custom_personality.configure(state="disabled")
+                self._custom_guidelines.configure(state="disabled")
 
     def _on_preset_selected(self, choice: str) -> None:
         """プリセット選択時に読み取り専用表示を更新する。"""

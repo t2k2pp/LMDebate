@@ -48,6 +48,7 @@ class LLMService:
     def __init__(self) -> None:
         self._providers: dict[str, BaseLLMProvider] = {}
         self._configs: dict[str, LLMProviderConfig] = {}
+        self._init_errors: dict[str, str] = {}
 
     def load_providers(self, configs: list[LLMProviderConfig]) -> None:
         """設定リストからプロバイダインスタンスを生成・登録する。"""
@@ -57,7 +58,8 @@ class LLMService:
                 provider = self.create_provider(config)
                 self._providers[config.id] = provider
                 logger.info("プロバイダ '%s' (%s) を登録しました。", config.id, config.type)
-            except Exception:
+            except Exception as e:
+                self._init_errors[config.id] = str(e)
                 logger.warning(
                     "プロバイダ '%s' (%s) の初期化に失敗しました。",
                     config.id,
@@ -106,6 +108,65 @@ class LLMService:
     def list_configs(self) -> list[LLMProviderConfig]:
         """登録済みプロバイダ設定の一覧を返す。"""
         return list(self._configs.values())
+
+    def get_init_errors(self) -> dict[str, str]:
+        """初期化に失敗したプロバイダのエラー情報を返す。"""
+        return dict(self._init_errors)
+
+    def add_provider(self, config: LLMProviderConfig) -> None:
+        """新しいプロバイダを追加し、JSONに保存する。"""
+        if config.id in self._configs:
+            raise ValueError(f"プロバイダID '{config.id}' は既に存在します。")
+        self._configs[config.id] = config
+        try:
+            provider = self.create_provider(config)
+            self._providers[config.id] = provider
+            self._init_errors.pop(config.id, None)
+            logger.info("プロバイダ '%s' (%s) を追加しました。", config.id, config.type)
+        except Exception as e:
+            self._init_errors[config.id] = str(e)
+            logger.warning(
+                "プロバイダ '%s' (%s) の初期化に失敗しました。設定は保存されます。",
+                config.id,
+                config.type,
+                exc_info=True,
+            )
+        self._save_to_json()
+
+    def update_provider(self, config: LLMProviderConfig) -> None:
+        """既存プロバイダの設定を更新し、JSONに保存する。"""
+        if config.id not in self._configs:
+            raise KeyError(f"プロバイダ '{config.id}' は存在しません。")
+        self._configs[config.id] = config
+        try:
+            provider = self.create_provider(config)
+            self._providers[config.id] = provider
+            self._init_errors.pop(config.id, None)
+        except Exception as e:
+            self._providers.pop(config.id, None)
+            self._init_errors[config.id] = str(e)
+            logger.warning(
+                "プロバイダ '%s' の再初期化に失敗しました。",
+                config.id,
+                exc_info=True,
+            )
+        self._save_to_json()
+
+    def delete_provider(self, provider_id: str) -> None:
+        """プロバイダを削除し、JSONに保存する。"""
+        if provider_id not in self._configs:
+            raise KeyError(f"プロバイダ '{provider_id}' は存在しません。")
+        self._configs.pop(provider_id, None)
+        self._providers.pop(provider_id, None)
+        self._init_errors.pop(provider_id, None)
+        logger.info("プロバイダ '%s' を削除しました。", provider_id)
+        self._save_to_json()
+
+    def _save_to_json(self) -> None:
+        """現在のプロバイダ設定をJSONファイルに保存する。"""
+        from src.utils.config_loader import save_llm_providers
+
+        save_llm_providers(list(self._configs.values()))
 
     async def generate(
         self,

@@ -40,3 +40,22 @@ class LLMProviderConfig:
     @classmethod
     def from_dict(cls, data: dict) -> "LLMProviderConfig":
         return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+
+    def to_dict(self) -> dict:
+        """dict形式に変換する。None値のフィールドは除外する。"""
+        result: dict = {
+            "id": self.id,
+            "name": self.name,
+            "type": self.type,
+            "default_max_tokens": self.default_max_tokens,
+            "default_temperature": self.default_temperature,
+        }
+        if self.deployment_name is not None:
+            result["deployment_name"] = self.deployment_name
+        if self.api_version is not None:
+            result["api_version"] = self.api_version
+        if self.model is not None:
+            result["model"] = self.model
+        if self.base_url is not None:
+            result["base_url"] = self.base_url
+        return result

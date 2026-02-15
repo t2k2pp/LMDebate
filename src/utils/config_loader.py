@@ -49,3 +49,11 @@ def load_llm_providers() -> list[LLMProviderConfig]:
     with open(providers_path, encoding="utf-8") as f:
         data: dict = json.load(f)
     return [LLMProviderConfig.from_dict(p) for p in data["providers"]]
+
+
+def save_llm_providers(configs: list[LLMProviderConfig]) -> None:
+    """LLMProviderConfig のリストを config/llm_providers.json に保存する。"""
+    providers_path = PROJECT_ROOT / "config" / "llm_providers.json"
+    data = {"providers": [c.to_dict() for c in configs]}
+    with open(providers_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
