@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-from tkinter import filedialog
 from typing import TYPE_CHECKING
 
 import customtkinter as ctk
@@ -11,80 +9,11 @@ import customtkinter as ctk
 from src.models.debate import Debate
 from src.models.participant import Participant, ParticipantRole, ParticipantType
 from src.models.role_preset import TargetRole
+from src.ui.components.file_attachment import FileAttachmentWidget
 
 if TYPE_CHECKING:
     from src.models.role_preset import RolePreset
     from src.models.settings import LLMProviderConfig
-
-
-class _FileAttachmentWidget(ctk.CTkFrame):
-    """添付ファイル選択ウィジェット。"""
-
-    SUPPORTED_EXTENSIONS = [
-        ("対応ファイル", "*.pdf *.txt *.md *.csv *.png *.jpg *.jpeg *.gif *.webp"),
-        ("すべてのファイル", "*.*"),
-    ]
-
-    def __init__(self, master, **kwargs):
-        super().__init__(master, **kwargs)
-        self._files: list[str] = []  # フルパスリスト
-
-        self.grid_columnconfigure(0, weight=1)
-
-        self._add_btn = ctk.CTkButton(
-            self, text="ファイルを選択...", command=self._select_files, width=140
-        )
-        self._add_btn.grid(row=0, column=0, sticky="w", pady=(0, 4))
-
-        self._file_list_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self._file_list_frame.grid(row=1, column=0, sticky="ew")
-        self._file_list_frame.grid_columnconfigure(0, weight=1)
-
-    def _select_files(self) -> None:
-        paths = filedialog.askopenfilenames(filetypes=self.SUPPORTED_EXTENSIONS)
-        if paths:
-            for p in paths:
-                if p not in self._files:
-                    self._files.append(p)
-            self._refresh_list()
-
-    def _refresh_list(self) -> None:
-        for child in self._file_list_frame.winfo_children():
-            child.destroy()
-        for idx, fpath in enumerate(self._files):
-            fname = os.path.basename(fpath)
-            fsize = os.path.getsize(fpath) if os.path.exists(fpath) else 0
-            size_label = f"({fsize // 1024}KB)" if fsize > 0 else ""
-
-            row_frame = ctk.CTkFrame(self._file_list_frame, fg_color="transparent")
-            row_frame.grid(row=idx, column=0, sticky="ew", pady=1)
-            row_frame.grid_columnconfigure(0, weight=1)
-
-            ctk.CTkLabel(
-                row_frame, text=f"  {fname} {size_label}", anchor="w"
-            ).grid(row=0, column=0, sticky="w")
-
-            ctk.CTkButton(
-                row_frame,
-                text="x",
-                width=28,
-                height=24,
-                fg_color="gray40",
-                hover_color="red",
-                command=lambda i=idx: self._remove_file(i),
-            ).grid(row=0, column=1, padx=(4, 0))
-
-    def _remove_file(self, idx: int) -> None:
-        if 0 <= idx < len(self._files):
-            self._files.pop(idx)
-            self._refresh_list()
-
-    def get_files(self) -> list[str]:
-        return list(self._files)
-
-    def clear(self) -> None:
-        self._files.clear()
-        self._refresh_list()
 
 
 class _ParticipantSection(ctk.CTkFrame):
@@ -235,7 +164,7 @@ class _ParticipantSection(ctk.CTkFrame):
         ctk.CTkLabel(self, text="添付ファイル:").grid(
             row=row, column=0, sticky="nw", padx=8, pady=2
         )
-        self._attachment_widget = _FileAttachmentWidget(self)
+        self._attachment_widget = FileAttachmentWidget(self)
         self._attachment_widget.grid(
             row=row, column=1, columnspan=2, sticky="ew", padx=4, pady=2
         )
@@ -445,6 +374,42 @@ class _ParticipantSection(ctk.CTkFrame):
             include_own_thinking=self._include_thinking_var.get(),
         )
 
+    def validate(self) -> str | None:
+        """入力値を検証する。エラーメッセージを返す（問題なければNone）。"""
+        role_labels = {
+            ParticipantRole.PROPOSER_A: "参加者A",
+            ParticipantRole.PROPOSER_B: "参加者B",
+            ParticipantRole.JUDGE: "参加者C",
+        }
+        label = role_labels.get(self._role, "参加者")
+
+        # 最大トークンの検証
+        try:
+            max_tokens = int(self._max_tokens_entry.get())
+            if max_tokens <= 0:
+                return f"{label}: 最大トークンは正の整数で入力してください。"
+            if max_tokens > 100000:
+                return f"{label}: 最大トークンが大きすぎます（上限: 100000）。"
+        except ValueError:
+            return f"{label}: 最大トークンは整数で入力してください。"
+
+        # スキップタイムアウトの検証（Cのみ）
+        if self._skip_timeout_entry is not None:
+            try:
+                timeout = int(self._skip_timeout_entry.get())
+                if timeout <= 0:
+                    return f"{label}: スキップタイムアウトは正の整数で入力してください。"
+            except ValueError:
+                return f"{label}: スキップタイムアウトは整数で入力してください。"
+
+        # LLM選択の検証（LLMタイプの場合）
+        if self._type_var.get() == "llm":
+            llm_name = self._llm_combo.get()
+            if not llm_name or llm_name == "(未設定)":
+                return f"{label}: LLMプロバイダを選択してください。"
+
+        return None
+
     def get_proposal_text(self) -> str:
         return self._proposal_text.get("1.0", "end-1c").strip()
 
@@ -455,7 +420,8 @@ class _ParticipantSection(ctk.CTkFrame):
         if self._skip_timeout_entry is None:
             return 5
         try:
-            return int(self._skip_timeout_entry.get())
+            val = int(self._skip_timeout_entry.get())
+            return val if val > 0 else 5
         except ValueError:
             return 5
 
@@ -589,14 +555,29 @@ class SetupView(ctk.CTkFrame):
             self._show_error("テーマを入力してください。")
             return
 
+        # 各参加者セクションのバリデーション
+        for section in (self._section_a, self._section_b, self._section_c):
+            error = section.validate()
+            if error:
+                self._show_error(error)
+                return
+
+        # 最大ラウンドのバリデーション
+        try:
+            max_rounds = int(self._max_rounds_entry.get())
+            if max_rounds <= 0:
+                self._show_error("最大ラウンド数は正の整数で入力してください。")
+                return
+            if max_rounds > 100:
+                self._show_error("最大ラウンド数が大きすぎます（上限: 100）。")
+                return
+        except ValueError:
+            self._show_error("最大ラウンド数は整数で入力してください。")
+            return
+
         proposal_x = self._section_a.get_proposal_text()
         proposal_y = self._section_b.get_proposal_text()
         judge_instruction = self._section_c.get_proposal_text()
-
-        try:
-            max_rounds = int(self._max_rounds_entry.get())
-        except ValueError:
-            max_rounds = 5
 
         # Debateオブジェクト作成
         debate = Debate(

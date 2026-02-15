@@ -11,6 +11,8 @@ _STATUS_COLORS: dict[str, dict[str, str]] = {
     "発言中...": {"fg": "#60a5fa", "indicator": "#3b82f6"},
     "思考中...": {"fg": "#c084fc", "indicator": "#a855f7"},
     "あなたのターン": {"fg": "#fbbf24", "indicator": "#f59e0b"},
+    "入力待ち": {"fg": "#fbbf24", "indicator": "#f59e0b"},
+    "完了": {"fg": "#666666", "indicator": "#444444"},
 }
 
 # ロール別アクセントカラー
@@ -138,6 +140,16 @@ class ParticipantCard(ctk.CTkFrame):
             text_color=status_colors["fg"],
         )
         self._status_label.pack(side="left", padx=(2, 0))
+
+        # 心情絵文字
+        self._emoji_label = ctk.CTkLabel(
+            self, text="", font=ctk.CTkFont(size=20), text_color="#e0e0e0",
+        )
+        self._emoji_label.pack(padx=10, pady=(0, 6))
+
+    def set_emoji(self, emoji: str) -> None:
+        """心情絵文字を更新する。"""
+        self._emoji_label.configure(text=emoji)
 
     def update_status(self, status: str) -> None:
         """ステータスを更新する。

@@ -445,6 +445,12 @@ class SettingsView(ctk.CTkFrame):
         # 最大トークン
         try:
             max_tokens = int(self._max_tokens_entry.get().strip())
+            if max_tokens <= 0:
+                self._show_error("最大トークンは正の整数で入力してください。")
+                return
+            if max_tokens > 100000:
+                self._show_error("最大トークンが大きすぎます（上限: 100000）。")
+                return
         except ValueError:
             self._show_error("最大トークンは整数で入力してください。")
             return
@@ -452,6 +458,9 @@ class SettingsView(ctk.CTkFrame):
         # 温度
         try:
             temperature = float(self._temperature_entry.get().strip())
+            if temperature < 0.0 or temperature > 2.0:
+                self._show_error("温度は0.0〜2.0の範囲で入力してください。")
+                return
         except ValueError:
             self._show_error("温度は数値で入力してください。")
             return

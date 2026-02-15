@@ -11,6 +11,8 @@ import customtkinter as ctk
 from src.models.debate import Debate, DebateStatus
 from src.models.message import Message, MessageType
 from src.models.participant import Participant, ParticipantRole, ParticipantType
+from src.ui.components.message_bubble import MessageBubble
+from src.ui.components.participant_card import ParticipantCard
 
 if TYPE_CHECKING:
     pass
@@ -19,115 +21,6 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 # 内部コンポーネント
 # ---------------------------------------------------------------------------
-
-
-class _MessageBubble(ctk.CTkFrame):
-    """チャットエリアに表示する個別メッセージバブル。"""
-
-    # ロール別の色設定
-    _ROLE_COLORS = {
-        ParticipantRole.PROPOSER_A: ("#2563eb", "#1e40af"),
-        ParticipantRole.PROPOSER_B: ("#059669", "#047857"),
-        ParticipantRole.JUDGE: ("#d97706", "#b45309"),
-    }
-
-    def __init__(
-        self,
-        master,
-        participant: Participant,
-        message: Message,
-        **kwargs,
-    ):
-        bg = self._ROLE_COLORS.get(participant.role, ("gray50", "gray30"))
-        super().__init__(master, corner_radius=8, fg_color=bg, **kwargs)
-        self.grid_columnconfigure(0, weight=1)
-
-        row = 0
-
-        # ヘッダー（名前 + ラウンド）
-        header_text = f"{participant.name}  [ラウンド{message.round_number}]"
-        ctk.CTkLabel(
-            self,
-            text=header_text,
-            font=ctk.CTkFont(size=12, weight="bold"),
-            anchor="w",
-        ).grid(row=row, column=0, sticky="w", padx=10, pady=(6, 2))
-        row += 1
-
-        # メッセージ内容
-        if message.message_type == MessageType.SKIP:
-            content = "(スキップ)"
-        elif message.message_type == MessageType.JUDGMENT:
-            content = message.content
-        else:
-            content = message.content
-
-        msg_label = ctk.CTkLabel(
-            self,
-            text=content,
-            anchor="w",
-            justify="left",
-            wraplength=500,
-        )
-        msg_label.grid(row=row, column=0, sticky="ew", padx=10, pady=(0, 6))
-
-
-class _ParticipantCard(ctk.CTkFrame):
-    """サイドバーに表示する参加者情報カード。"""
-
-    _STATUS_COLORS = {
-        "待機中": "gray",
-        "発言中...": "#22c55e",
-        "入力待ち": "#f59e0b",
-        "完了": "gray50",
-    }
-
-    def __init__(self, master, participant: Participant, **kwargs):
-        super().__init__(master, corner_radius=6, **kwargs)
-        self._participant = participant
-
-        self.grid_columnconfigure(0, weight=1)
-
-        role_labels = {
-            ParticipantRole.PROPOSER_A: "A: 案X推進",
-            ParticipantRole.PROPOSER_B: "B: 案Y推進",
-            ParticipantRole.JUDGE: "C: 判定者",
-        }
-        role_text = role_labels.get(participant.role, participant.role.value)
-
-        ctk.CTkLabel(
-            self,
-            text=participant.name,
-            font=ctk.CTkFont(size=13, weight="bold"),
-            anchor="w",
-        ).grid(row=0, column=0, sticky="w", padx=8, pady=(6, 0))
-
-        type_text = participant.llm_model or "人間" if participant.type == ParticipantType.LLM else "人間"
-        ctk.CTkLabel(self, text=f"役割: {role_text}", anchor="w", text_color="gray").grid(
-            row=1, column=0, sticky="w", padx=8
-        )
-        ctk.CTkLabel(self, text=f"タイプ: {type_text}", anchor="w", text_color="gray").grid(
-            row=2, column=0, sticky="w", padx=8
-        )
-
-        self._status_label = ctk.CTkLabel(
-            self, text="状態: 待機中", anchor="w", text_color="gray"
-        )
-        self._status_label.grid(row=3, column=0, sticky="w", padx=8)
-
-        # 心情絵文字
-        self._emoji_label = ctk.CTkLabel(
-            self, text="", font=ctk.CTkFont(size=20), anchor="w"
-        )
-        self._emoji_label.grid(row=4, column=0, sticky="w", padx=8, pady=(0, 6))
-
-    def set_status(self, status: str) -> None:
-        color = self._STATUS_COLORS.get(status, "gray")
-        self._status_label.configure(text=f"状態: {status}", text_color=color)
-
-    def set_emoji(self, emoji: str) -> None:
-        """心情絵文字を更新する。"""
-        self._emoji_label.configure(text=emoji)
 
 
 class _LoadingIndicator(ctk.CTkFrame):
@@ -171,7 +64,7 @@ class DebateView(ctk.CTkFrame):
         self._debate: Debate | None = None
         self._participants: dict[str, Participant] = {}
         self._role_to_participant: dict[ParticipantRole, Participant] = {}
-        self._participant_cards: dict[str, _ParticipantCard] = {}
+        self._participant_cards: dict[str, ParticipantCard] = {}
         self._loading_indicator: _LoadingIndicator | None = None
         self._timer_id: str | None = None
         self._timer_remaining: int = 0
@@ -343,7 +236,13 @@ class DebateView(ctk.CTkFrame):
         self._participant_cards.clear()
 
         for idx, p in enumerate(participants):
-            card = _ParticipantCard(self._cards_frame, p)
+            card = ParticipantCard(
+                self._cards_frame,
+                name=p.name,
+                role=p.role.value,
+                participant_type=p.type.value,
+                model_name=p.llm_model,
+            )
             card.grid(row=idx, column=0, sticky="ew", pady=4)
             self._participant_cards[p.id] = card
 
@@ -390,8 +289,24 @@ class DebateView(ctk.CTkFrame):
         if message.message_type == MessageType.THINKING:
             return
 
-        bubble = _MessageBubble(
-            self._chat_scroll, participant=participant, message=message
+        _role_label_map = {
+            ParticipantRole.PROPOSER_A: "A",
+            ParticipantRole.PROPOSER_B: "B",
+            ParticipantRole.JUDGE: "C",
+        }
+        _msg_type_map = {
+            MessageType.SPEECH: "speech",
+            MessageType.THINKING: "thinking",
+            MessageType.SKIP: "skip",
+            MessageType.JUDGMENT: "judgment",
+        }
+        bubble = MessageBubble(
+            self._chat_scroll,
+            participant_name=participant.name,
+            role_label=_role_label_map.get(participant.role, "A"),
+            round_number=message.round_number,
+            content=message.content if message.message_type != MessageType.SKIP else "(スキップ)",
+            message_type=_msg_type_map.get(message.message_type, "speech"),
         )
         bubble.grid(
             row=self._chat_msg_count, column=0, sticky="ew", padx=8, pady=4
@@ -407,7 +322,7 @@ class DebateView(ctk.CTkFrame):
         # カードのステータス更新 + 心情絵文字
         card = self._participant_cards.get(participant.id)
         if card:
-            card.set_status("待機中")
+            card.update_status("待機中")
             if message.message_type != MessageType.SKIP:
                 from src.utils.sentiment import analyze_sentiment
 
@@ -418,16 +333,16 @@ class DebateView(ctk.CTkFrame):
         """ターン開始時のUI更新。"""
         # 全カードを待機中に
         for card in self._participant_cards.values():
-            card.set_status("待機中")
+            card.update_status("待機中")
 
         # 現在のカードを発言中に
         card = self._participant_cards.get(participant.id)
         if card:
             if participant.type == ParticipantType.LLM:
-                card.set_status("発言中...")
+                card.update_status("発言中...")
                 self._show_loading_indicator(participant.name)
             else:
-                card.set_status("入力待ち")
+                card.update_status("入力待ち")
 
         self._update_round_display()
 
@@ -445,7 +360,7 @@ class DebateView(ctk.CTkFrame):
 
         card = self._participant_cards.get(participant.id)
         if card:
-            card.set_status("入力待ち")
+            card.update_status("入力待ち")
 
         # Cの場合タイマー開始
         if participant.role == ParticipantRole.JUDGE:
@@ -466,7 +381,7 @@ class DebateView(ctk.CTkFrame):
         self._remove_loading_indicator()
 
         for card in self._participant_cards.values():
-            card.set_status("完了")
+            card.update_status("完了")
 
         self._pause_btn.configure(state="disabled")
         self._stop_btn.configure(state="disabled")

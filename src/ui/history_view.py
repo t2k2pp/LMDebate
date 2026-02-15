@@ -10,6 +10,7 @@ import customtkinter as ctk
 from src.models.debate import Debate, DebateStatus
 from src.models.message import Message, MessageType
 from src.models.participant import Participant, ParticipantRole, ParticipantType
+from src.ui.components.thinking_panel import ThinkingPanel
 
 if TYPE_CHECKING:
     pass
@@ -18,58 +19,6 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 # 内部コンポーネント
 # ---------------------------------------------------------------------------
-
-
-class _ThinkingPanel(ctk.CTkFrame):
-    """思考（thinking）の折りたたみパネル。"""
-
-    def __init__(self, master, thinking_text: str, **kwargs):
-        super().__init__(master, corner_radius=6, fg_color=("gray85", "gray20"), **kwargs)
-        self.grid_columnconfigure(0, weight=1)
-
-        self._thinking_text = thinking_text
-        self._expanded = False
-
-        self._toggle_btn = ctk.CTkButton(
-            self,
-            text="[思考] クリックで展開",
-            anchor="w",
-            fg_color="transparent",
-            hover_color=("gray75", "gray30"),
-            text_color=("gray40", "gray60"),
-            font=ctk.CTkFont(size=11),
-            command=self._toggle,
-        )
-        self._toggle_btn.grid(row=0, column=0, sticky="ew", padx=4, pady=2)
-
-        self._content_label = ctk.CTkLabel(
-            self,
-            text=thinking_text,
-            anchor="w",
-            justify="left",
-            wraplength=500,
-            text_color=("gray30", "gray70"),
-            font=ctk.CTkFont(size=11),
-        )
-        # 初期非表示
-        self._content_label.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 4))
-        self._content_label.grid_remove()
-
-    def _toggle(self) -> None:
-        self._expanded = not self._expanded
-        if self._expanded:
-            self._content_label.grid()
-            self._toggle_btn.configure(text="[思考] クリックで折りたたみ")
-        else:
-            self._content_label.grid_remove()
-            self._toggle_btn.configure(text="[思考] クリックで展開")
-
-    def set_visible(self, visible: bool) -> None:
-        """思考の表示/非表示を切り替える。"""
-        if visible:
-            self.grid()
-        else:
-            self.grid_remove()
 
 
 class _DebateListItem(ctk.CTkFrame):
@@ -130,7 +79,7 @@ class HistoryView(ctk.CTkFrame):
         self._app = app
         self._debates: list[Debate] = []
         self._selected_debate: Debate | None = None
-        self._thinking_panels: list[_ThinkingPanel] = []
+        self._thinking_panels: list[ThinkingPanel] = []
         self._show_thinking = False
 
         self.grid_columnconfigure(0, minsize=300)
@@ -461,7 +410,8 @@ class HistoryView(ctk.CTkFrame):
 
         # 思考パネル
         if thinking:
-            panel = _ThinkingPanel(block, thinking_text=thinking)
+            p_name = participant.name if participant else ""
+            panel = ThinkingPanel(block, thinking_text=thinking, participant_name=p_name)
             panel.grid(row=block_row, column=0, sticky="ew", padx=8, pady=2)
             if not self._show_thinking:
                 panel.grid_remove()
@@ -489,7 +439,10 @@ class HistoryView(ctk.CTkFrame):
         """思考表示チェックボックスの切替。"""
         self._show_thinking = self._thinking_var.get()
         for panel in self._thinking_panels:
-            panel.set_visible(self._show_thinking)
+            if self._show_thinking:
+                panel.grid()
+            else:
+                panel.grid_remove()
 
     def _on_export(self) -> None:
         """Markdownエクスポートボタン。"""
