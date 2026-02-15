@@ -1,0 +1,11 @@
+.env
+__pycache__/
+*.pyc
+data/debates.db
+data/attachments/
+exports/
+.venv/
+venv/
+*.egg-info/
+dist/
+build/

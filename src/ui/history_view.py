@@ -1,0 +1,616 @@
+"""履歴閲覧画面"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import TYPE_CHECKING
+
+import customtkinter as ctk
+
+from src.models.debate import Debate, DebateStatus
+from src.models.message import Message, MessageType
+from src.models.participant import Participant, ParticipantRole, ParticipantType
+
+if TYPE_CHECKING:
+    pass
+
+
+# ---------------------------------------------------------------------------
+# 内部コンポーネント
+# ---------------------------------------------------------------------------
+
+
+class _ThinkingPanel(ctk.CTkFrame):
+    """思考（thinking）の折りたたみパネル。"""
+
+    def __init__(self, master, thinking_text: str, **kwargs):
+        super().__init__(master, corner_radius=6, fg_color=("gray85", "gray20"), **kwargs)
+        self.grid_columnconfigure(0, weight=1)
+
+        self._thinking_text = thinking_text
+        self._expanded = False
+
+        self._toggle_btn = ctk.CTkButton(
+            self,
+            text="[思考] クリックで展開",
+            anchor="w",
+            fg_color="transparent",
+            hover_color=("gray75", "gray30"),
+            text_color=("gray40", "gray60"),
+            font=ctk.CTkFont(size=11),
+            command=self._toggle,
+        )
+        self._toggle_btn.grid(row=0, column=0, sticky="ew", padx=4, pady=2)
+
+        self._content_label = ctk.CTkLabel(
+            self,
+            text=thinking_text,
+            anchor="w",
+            justify="left",
+            wraplength=500,
+            text_color=("gray30", "gray70"),
+            font=ctk.CTkFont(size=11),
+        )
+        # 初期非表示
+        self._content_label.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 4))
+        self._content_label.grid_remove()
+
+    def _toggle(self) -> None:
+        self._expanded = not self._expanded
+        if self._expanded:
+            self._content_label.grid()
+            self._toggle_btn.configure(text="[思考] クリックで折りたたみ")
+        else:
+            self._content_label.grid_remove()
+            self._toggle_btn.configure(text="[思考] クリックで展開")
+
+    def set_visible(self, visible: bool) -> None:
+        """思考の表示/非表示を切り替える。"""
+        if visible:
+            self.grid()
+        else:
+            self.grid_remove()
+
+
+class _DebateListItem(ctk.CTkFrame):
+    """履歴リストの個別アイテム。"""
+
+    def __init__(self, master, debate: Debate, on_select, **kwargs):
+        super().__init__(master, corner_radius=6, cursor="hand2", **kwargs)
+        self._debate = debate
+        self._on_select = on_select
+        self.grid_columnconfigure(0, weight=1)
+
+        # タイトル
+        ctk.CTkLabel(
+            self,
+            text=debate.title,
+            font=ctk.CTkFont(size=13, weight="bold"),
+            anchor="w",
+        ).grid(row=0, column=0, sticky="w", padx=8, pady=(6, 0))
+
+        # 日時 + ステータス
+        status_map = {
+            DebateStatus.PENDING: "未開始",
+            DebateStatus.RUNNING: "進行中",
+            DebateStatus.PAUSED: "一時停止",
+            DebateStatus.COMPLETED: "完了",
+        }
+        status_text = status_map.get(debate.status, debate.status.value)
+        date_text = debate.created_at.strftime("%Y-%m-%d %H:%M")
+
+        ctk.CTkLabel(
+            self,
+            text=f"{date_text}  |  {status_text}",
+            anchor="w",
+            text_color="gray",
+            font=ctk.CTkFont(size=11),
+        ).grid(row=1, column=0, sticky="w", padx=8, pady=(0, 6))
+
+        # クリックイベント
+        self.bind("<Button-1>", lambda e: self._on_select(debate))
+        for child in self.winfo_children():
+            child.bind("<Button-1>", lambda e: self._on_select(debate))
+
+
+# ---------------------------------------------------------------------------
+# メインビュー
+# ---------------------------------------------------------------------------
+
+
+class HistoryView(ctk.CTkFrame):
+    """履歴閲覧画面。
+
+    左: ディベート一覧リスト
+    右: 選択したディベートの詳細表示
+    """
+
+    def __init__(self, master, app, **kwargs):
+        super().__init__(master, **kwargs)
+        self._app = app
+        self._debates: list[Debate] = []
+        self._selected_debate: Debate | None = None
+        self._thinking_panels: list[_ThinkingPanel] = []
+        self._show_thinking = False
+
+        self.grid_columnconfigure(0, minsize=300)
+        self.grid_columnconfigure(1, weight=1)
+        self.grid_rowconfigure(0, weight=1)
+
+        # --- 左: 一覧リスト ---
+        left_frame = ctk.CTkFrame(self)
+        left_frame.grid(row=0, column=0, sticky="nsew", padx=(4, 2), pady=4)
+        left_frame.grid_columnconfigure(0, weight=1)
+        left_frame.grid_rowconfigure(1, weight=1)
+
+        ctk.CTkLabel(
+            left_frame,
+            text="ディベート履歴",
+            font=ctk.CTkFont(size=16, weight="bold"),
+            anchor="w",
+        ).grid(row=0, column=0, sticky="w", padx=12, pady=(12, 4))
+
+        self._list_scroll = ctk.CTkScrollableFrame(left_frame)
+        self._list_scroll.grid(row=1, column=0, sticky="nsew", padx=4, pady=4)
+        self._list_scroll.grid_columnconfigure(0, weight=1)
+
+        # --- 右: 詳細ビュー ---
+        right_frame = ctk.CTkFrame(self)
+        right_frame.grid(row=0, column=1, sticky="nsew", padx=(2, 4), pady=4)
+        right_frame.grid_columnconfigure(0, weight=1)
+        right_frame.grid_rowconfigure(2, weight=1)
+
+        # 詳細ヘッダー
+        detail_header = ctk.CTkFrame(right_frame, fg_color="transparent")
+        detail_header.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 4))
+        detail_header.grid_columnconfigure(0, weight=1)
+
+        self._detail_title = ctk.CTkLabel(
+            detail_header,
+            text="ディベートを選択してください",
+            font=ctk.CTkFont(size=16, weight="bold"),
+            anchor="w",
+        )
+        self._detail_title.grid(row=0, column=0, sticky="w")
+
+        # アクションボタン
+        btn_frame = ctk.CTkFrame(detail_header, fg_color="transparent")
+        btn_frame.grid(row=0, column=1, sticky="e")
+
+        self._export_btn = ctk.CTkButton(
+            btn_frame,
+            text="Markdownエクスポート",
+            width=170,
+            command=self._on_export,
+            state="disabled",
+        )
+        self._export_btn.pack(side="left", padx=4)
+
+        self._delete_btn = ctk.CTkButton(
+            btn_frame,
+            text="削除",
+            width=80,
+            fg_color="red",
+            hover_color="darkred",
+            command=self._on_delete,
+            state="disabled",
+        )
+        self._delete_btn.pack(side="left", padx=4)
+
+        # 思考表示チェックボックス
+        self._thinking_var = ctk.BooleanVar(value=False)
+        self._thinking_cb = ctk.CTkCheckBox(
+            right_frame,
+            text="思考（thinking）を表示する",
+            variable=self._thinking_var,
+            command=self._on_thinking_toggle,
+        )
+        self._thinking_cb.grid(row=1, column=0, sticky="w", padx=12, pady=4)
+
+        # 詳細コンテンツ（スクロール可能）
+        self._detail_scroll = ctk.CTkScrollableFrame(right_frame)
+        self._detail_scroll.grid(row=2, column=0, sticky="nsew", padx=4, pady=4)
+        self._detail_scroll.grid_columnconfigure(0, weight=1)
+
+    # ------------------------------------------------------------------
+    # 一覧の読み込み
+    # ------------------------------------------------------------------
+
+    def _load_debates(self) -> None:
+        """DBからディベート一覧を読み込む。"""
+        self._debates = []
+        try:
+            if self._app and hasattr(self._app, "history_service") and self._app.history_service:
+                self._debates = self._app.history_service.list_debates()
+        except Exception:
+            pass
+        self._refresh_list()
+
+    def _refresh_list(self) -> None:
+        """一覧リストを再描画する。"""
+        for child in self._list_scroll.winfo_children():
+            child.destroy()
+
+        if not self._debates:
+            ctk.CTkLabel(
+                self._list_scroll, text="履歴がありません", text_color="gray"
+            ).grid(row=0, column=0, padx=12, pady=20)
+            return
+
+        for idx, debate in enumerate(self._debates):
+            item = _DebateListItem(
+                self._list_scroll,
+                debate=debate,
+                on_select=self._on_debate_selected,
+            )
+            item.grid(row=idx, column=0, sticky="ew", padx=4, pady=2)
+
+    # ------------------------------------------------------------------
+    # 詳細表示
+    # ------------------------------------------------------------------
+
+    def _on_debate_selected(self, debate: Debate) -> None:
+        """ディベートが選択された時の処理。"""
+        self._selected_debate = debate
+        self._export_btn.configure(state="normal")
+        self._delete_btn.configure(state="normal")
+        self._render_detail(debate)
+
+    def _render_detail(self, debate: Debate) -> None:
+        """詳細コンテンツを描画する。"""
+        # クリア
+        for child in self._detail_scroll.winfo_children():
+            child.destroy()
+        self._thinking_panels.clear()
+
+        self._detail_title.configure(text=debate.title)
+
+        row = 0
+
+        # メタ情報
+        meta_frame = ctk.CTkFrame(self._detail_scroll, corner_radius=6)
+        meta_frame.grid(row=row, column=0, sticky="ew", padx=4, pady=4)
+        meta_frame.grid_columnconfigure(1, weight=1)
+
+        meta_items = [
+            ("テーマ", debate.topic),
+            ("案X", debate.proposal_x),
+            ("案Y", debate.proposal_y),
+            ("日時", debate.created_at.strftime("%Y-%m-%d %H:%M")),
+            ("ラウンド", f"{debate.current_round}/{debate.max_rounds}"),
+        ]
+        if debate.winner:
+            meta_items.append(("判定結果", debate.winner))
+
+        for mi, (k, v) in enumerate(meta_items):
+            ctk.CTkLabel(
+                meta_frame, text=f"{k}:", font=ctk.CTkFont(weight="bold"), anchor="nw"
+            ).grid(row=mi, column=0, sticky="nw", padx=(8, 4), pady=2)
+            ctk.CTkLabel(
+                meta_frame, text=v or "(なし)", anchor="w", wraplength=400
+            ).grid(row=mi, column=1, sticky="w", padx=4, pady=2)
+        row += 1
+
+        # 参加者情報
+        participants: list[Participant] = []
+        try:
+            if self._app and hasattr(self._app, "history_service") and self._app.history_service:
+                participants = self._app.history_service.get_participants(debate.id)
+        except Exception:
+            pass
+
+        participant_map: dict[str, Participant] = {p.id: p for p in participants}
+
+        if participants:
+            p_frame = ctk.CTkFrame(self._detail_scroll, corner_radius=6)
+            p_frame.grid(row=row, column=0, sticky="ew", padx=4, pady=4)
+            p_frame.grid_columnconfigure(0, weight=1)
+
+            ctk.CTkLabel(
+                p_frame,
+                text="参加者",
+                font=ctk.CTkFont(size=13, weight="bold"),
+                anchor="w",
+            ).grid(row=0, column=0, sticky="w", padx=8, pady=(6, 2))
+
+            for pi, p in enumerate(participants):
+                role_labels = {
+                    ParticipantRole.PROPOSER_A: "A（案X推進）",
+                    ParticipantRole.PROPOSER_B: "B（案Y推進）",
+                    ParticipantRole.JUDGE: "C（判定者）",
+                }
+                role_text = role_labels.get(p.role, p.role.value)
+                type_text = "LLM" if p.type == ParticipantType.LLM else "人間"
+                model_text = p.llm_model or "-"
+
+                ctk.CTkLabel(
+                    p_frame,
+                    text=f"  {role_text}: {p.name} ({type_text}, {model_text})",
+                    anchor="w",
+                ).grid(row=pi + 1, column=0, sticky="w", padx=8, pady=1)
+
+            row += 1
+
+        # メッセージ一覧
+        messages: list[Message] = []
+        try:
+            if self._app and hasattr(self._app, "history_service") and self._app.history_service:
+                messages = self._app.history_service.get_messages(debate.id)
+        except Exception:
+            pass
+
+        if messages:
+            # ラウンド別にグループ化
+            rounds: dict[int, list[Message]] = {}
+            for msg in messages:
+                rounds.setdefault(msg.round_number, []).append(msg)
+
+            for round_num in sorted(rounds.keys()):
+                round_label = ctk.CTkLabel(
+                    self._detail_scroll,
+                    text=f"--- ラウンド {round_num} ---",
+                    font=ctk.CTkFont(size=13, weight="bold"),
+                    text_color="gray",
+                )
+                round_label.grid(row=row, column=0, sticky="ew", padx=8, pady=(12, 4))
+                row += 1
+
+                # 参加者ごとのメッセージをまとめる
+                current_pid = None
+                thinking_text = None
+                speech_text = None
+                msg_type = None
+
+                for msg in rounds[round_num]:
+                    if msg.participant_id != current_pid:
+                        # 前の参加者のブロックを出力
+                        if current_pid is not None:
+                            row = self._render_message_block(
+                                row, participant_map.get(current_pid),
+                                thinking_text, speech_text, msg_type,
+                            )
+                        current_pid = msg.participant_id
+                        thinking_text = None
+                        speech_text = None
+                        msg_type = None
+
+                    if msg.message_type == MessageType.THINKING:
+                        thinking_text = msg.content
+                    elif msg.message_type == MessageType.SPEECH:
+                        speech_text = msg.content
+                        msg_type = MessageType.SPEECH
+                    elif msg.message_type == MessageType.SKIP:
+                        speech_text = "(スキップ)"
+                        msg_type = MessageType.SKIP
+                    elif msg.message_type == MessageType.JUDGMENT:
+                        speech_text = msg.content
+                        msg_type = MessageType.JUDGMENT
+
+                # 最後の参加者のブロック
+                if current_pid is not None:
+                    row = self._render_message_block(
+                        row, participant_map.get(current_pid),
+                        thinking_text, speech_text, msg_type,
+                    )
+
+        # 最終判定
+        judgment_msgs = [m for m in messages if m.message_type == MessageType.JUDGMENT]
+        if judgment_msgs or debate.winner:
+            verdict_frame = ctk.CTkFrame(
+                self._detail_scroll, corner_radius=6, fg_color=("gray85", "gray20")
+            )
+            verdict_frame.grid(row=row, column=0, sticky="ew", padx=4, pady=8)
+            verdict_frame.grid_columnconfigure(0, weight=1)
+
+            ctk.CTkLabel(
+                verdict_frame,
+                text="=== 最終判定 ===",
+                font=ctk.CTkFont(size=14, weight="bold"),
+            ).grid(row=0, column=0, padx=8, pady=(8, 2))
+
+            if debate.winner:
+                ctk.CTkLabel(
+                    verdict_frame, text=f"判定結果: {debate.winner}", anchor="w"
+                ).grid(row=1, column=0, sticky="w", padx=8, pady=(0, 4))
+
+            for ji, jm in enumerate(judgment_msgs):
+                p = participant_map.get(jm.participant_id)
+                name = p.name if p else "不明"
+                ctk.CTkLabel(
+                    verdict_frame,
+                    text=f"{name}: {jm.content}",
+                    anchor="w",
+                    wraplength=500,
+                    justify="left",
+                ).grid(row=2 + ji, column=0, sticky="w", padx=8, pady=(0, 6))
+
+            row += 1
+
+    def _render_message_block(
+        self,
+        row: int,
+        participant: Participant | None,
+        thinking: str | None,
+        speech: str | None,
+        msg_type: MessageType | None,
+    ) -> int:
+        """1参加者分のメッセージブロックを描画する。rowを返す。"""
+        if participant is None:
+            return row
+
+        block = ctk.CTkFrame(self._detail_scroll, corner_radius=6)
+        block.grid(row=row, column=0, sticky="ew", padx=8, pady=2)
+        block.grid_columnconfigure(0, weight=1)
+
+        block_row = 0
+
+        # ヘッダー
+        role_short = {
+            ParticipantRole.PROPOSER_A: "A",
+            ParticipantRole.PROPOSER_B: "B",
+            ParticipantRole.JUDGE: "C",
+        }
+        header = f"{role_short.get(participant.role, '?')} ({participant.name})"
+        ctk.CTkLabel(
+            block,
+            text=header,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            anchor="w",
+        ).grid(row=block_row, column=0, sticky="w", padx=8, pady=(6, 2))
+        block_row += 1
+
+        # 思考パネル
+        if thinking:
+            panel = _ThinkingPanel(block, thinking_text=thinking)
+            panel.grid(row=block_row, column=0, sticky="ew", padx=8, pady=2)
+            if not self._show_thinking:
+                panel.grid_remove()
+            self._thinking_panels.append(panel)
+            block_row += 1
+
+        # 発言
+        if speech:
+            ctk.CTkLabel(
+                block,
+                text=f"[発言] {speech}",
+                anchor="w",
+                justify="left",
+                wraplength=500,
+            ).grid(row=block_row, column=0, sticky="w", padx=8, pady=(0, 6))
+            block_row += 1
+
+        return row + 1
+
+    # ------------------------------------------------------------------
+    # アクション
+    # ------------------------------------------------------------------
+
+    def _on_thinking_toggle(self) -> None:
+        """思考表示チェックボックスの切替。"""
+        self._show_thinking = self._thinking_var.get()
+        for panel in self._thinking_panels:
+            panel.set_visible(self._show_thinking)
+
+    def _on_export(self) -> None:
+        """Markdownエクスポートボタン。"""
+        if self._selected_debate is None:
+            return
+
+        try:
+            from src.services.export_service import ExportService
+
+            debate = self._selected_debate
+            participants = []
+            messages = []
+            if self._app and hasattr(self._app, "history_service") and self._app.history_service:
+                participants = self._app.history_service.get_participants(debate.id)
+                messages = self._app.history_service.get_messages(debate.id)
+
+            export_dir = "./exports"
+            if self._app and hasattr(self._app, "settings") and self._app.settings:
+                export_dir = self._app.settings.export_dir
+
+            exporter = ExportService(export_dir)
+            filepath = exporter.export_debate(
+                debate, participants, messages, include_thinking=True
+            )
+
+            self._show_info(f"エクスポート完了:\n{filepath}")
+        except Exception as e:
+            self._show_error(f"エクスポートエラー: {e}")
+
+    def _on_delete(self) -> None:
+        """削除ボタン（確認ダイアログ付き）。"""
+        if self._selected_debate is None:
+            return
+
+        self._show_confirm(
+            f"ディベート「{self._selected_debate.title}」を削除しますか？\nこの操作は取り消せません。",
+            self._do_delete,
+        )
+
+    def _do_delete(self) -> None:
+        """実際の削除処理。"""
+        if self._selected_debate is None:
+            return
+
+        try:
+            if self._app and hasattr(self._app, "history_service") and self._app.history_service:
+                self._app.history_service.delete_debate(self._selected_debate.id)
+
+            # 添付ファイルも削除
+            if self._app and hasattr(self._app, "attachment_service") and self._app.attachment_service:
+                self._app.attachment_service.delete_debate_files(self._selected_debate.id)
+
+            self._selected_debate = None
+
+            # 詳細エリアをクリア
+            for child in self._detail_scroll.winfo_children():
+                child.destroy()
+            self._thinking_panels.clear()
+            self._detail_title.configure(text="ディベートを選択してください")
+            self._export_btn.configure(state="disabled")
+            self._delete_btn.configure(state="disabled")
+
+            # リスト再読み込み
+            self._load_debates()
+        except Exception as e:
+            self._show_error(f"削除エラー: {e}")
+
+    # ------------------------------------------------------------------
+    # ダイアログ
+    # ------------------------------------------------------------------
+
+    def _show_info(self, msg: str) -> None:
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("情報")
+        dialog.geometry("450x150")
+        dialog.transient(self.winfo_toplevel())
+        dialog.grab_set()
+        ctk.CTkLabel(dialog, text=msg, wraplength=400).pack(expand=True, padx=20, pady=20)
+        ctk.CTkButton(dialog, text="OK", command=dialog.destroy).pack(pady=(0, 16))
+
+    def _show_error(self, msg: str) -> None:
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("エラー")
+        dialog.geometry("450x150")
+        dialog.transient(self.winfo_toplevel())
+        dialog.grab_set()
+        ctk.CTkLabel(dialog, text=msg, wraplength=400, text_color="red").pack(
+            expand=True, padx=20, pady=20
+        )
+        ctk.CTkButton(dialog, text="OK", command=dialog.destroy).pack(pady=(0, 16))
+
+    def _show_confirm(self, msg: str, on_confirm) -> None:
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("確認")
+        dialog.geometry("450x180")
+        dialog.transient(self.winfo_toplevel())
+        dialog.grab_set()
+
+        ctk.CTkLabel(dialog, text=msg, wraplength=400).pack(
+            expand=True, padx=20, pady=20
+        )
+
+        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_frame.pack(pady=(0, 16))
+
+        ctk.CTkButton(
+            btn_frame, text="キャンセル", fg_color="gray40", command=dialog.destroy
+        ).pack(side="left", padx=8)
+
+        def confirm():
+            dialog.destroy()
+            on_confirm()
+
+        ctk.CTkButton(
+            btn_frame, text="削除", fg_color="red", hover_color="darkred", command=confirm
+        ).pack(side="left", padx=8)
+
+    # ------------------------------------------------------------------
+    # ライフサイクル
+    # ------------------------------------------------------------------
+
+    def on_show(self) -> None:
+        """ビュー表示時にデータを再読み込みする。"""
+        self._load_debates()

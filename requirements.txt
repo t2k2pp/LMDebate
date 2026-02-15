@@ -1,0 +1,17 @@
+# GUI
+customtkinter>=5.2.0
+
+# LLM Providers
+openai>=1.12.0
+anthropic>=0.25.0
+google-cloud-aiplatform>=1.43.0
+httpx>=0.27.0
+
+# Environment
+python-dotenv>=1.0.0
+
+# PDF text extraction
+PyPDF2>=3.0.0
+
+# Token counting
+tiktoken>=0.6.0
