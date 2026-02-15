@@ -18,6 +18,36 @@ except ImportError:
 class LMStudioProvider(BaseLLMProvider):
     """LM Studio (OpenAI互換API) を利用するプロバイダ"""
 
+    @staticmethod
+    def list_models(base_url: str) -> list[str]:
+        """指定されたベースURLからLM Studioの利用可能なモデル一覧を取得する。
+
+        Parameters
+        ----------
+        base_url : LM Studio サーバーのベースURL (例: http://localhost:1234/v1)
+
+        Returns
+        -------
+        list[str]
+            利用可能なモデルIDのリスト
+        """
+        try:
+            import httpx as _httpx
+        except ImportError:
+            raise RuntimeError("httpx パッケージがインストールされていません。")
+
+        # base_url が /v1 で終わる場合はそのまま、そうでなければ /v1 を追加
+        url = base_url.rstrip("/")
+        if not url.endswith("/v1"):
+            url += "/v1"
+
+        with _httpx.Client(base_url=url, timeout=10.0) as client:
+            response = client.get("/models")
+            response.raise_for_status()
+            data = response.json()
+            models = data.get("data", [])
+            return [m["id"] for m in models if "id" in m]
+
     def __init__(self, config: LLMProviderConfig) -> None:
         self.config = config
         self.base_url: str = config.base_url or "http://localhost:1234/v1"

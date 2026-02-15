@@ -18,6 +18,51 @@ except ImportError:
 class LlamaCppProvider(BaseLLMProvider):
     """llama.cpp HTTP サーバー (/completion エンドポイント) を利用するプロバイダ"""
 
+    @staticmethod
+    def list_models(base_url: str) -> list[str]:
+        """指定されたベースURLからllama.cppサーバーのモデル情報を取得する。
+
+        llama.cpp サーバーは通常単一モデルをロードするため、
+        /v1/models または /props エンドポイントからモデル名を取得する。
+
+        Parameters
+        ----------
+        base_url : llama.cpp サーバーのベースURL (例: http://localhost:8080)
+
+        Returns
+        -------
+        list[str]
+            利用可能なモデル名のリスト（通常1つ）
+        """
+        if httpx is None:
+            raise RuntimeError("httpx パッケージがインストールされていません。")
+
+        with httpx.Client(base_url=base_url, timeout=10.0) as client:
+            # まず /v1/models を試行（新しい llama.cpp サーバー）
+            try:
+                response = client.get("/v1/models")
+                response.raise_for_status()
+                data = response.json()
+                models = data.get("data", [])
+                result = [m["id"] for m in models if "id" in m]
+                if result:
+                    return result
+            except Exception:
+                pass
+
+            # /props エンドポイントを試行（フォールバック）
+            try:
+                response = client.get("/props")
+                response.raise_for_status()
+                data = response.json()
+                model_name = data.get("default_generation_settings", {}).get("model")
+                if model_name:
+                    return [model_name]
+            except Exception:
+                pass
+
+            return []
+
     def __init__(self, config: LLMProviderConfig) -> None:
         self.config = config
         self.base_url: str = config.base_url or "http://localhost:8080"

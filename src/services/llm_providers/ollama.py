@@ -18,6 +18,29 @@ except ImportError:
 class OllamaProvider(BaseLLMProvider):
     """Ollama REST API を利用するプロバイダ"""
 
+    @staticmethod
+    def list_models(base_url: str) -> list[str]:
+        """指定されたベースURLからOllamaの利用可能なモデル一覧を取得する。
+
+        Parameters
+        ----------
+        base_url : Ollama サーバーのベースURL (例: http://localhost:11434)
+
+        Returns
+        -------
+        list[str]
+            利用可能なモデル名のリスト
+        """
+        if httpx is None:
+            raise RuntimeError("httpx パッケージがインストールされていません。")
+
+        with httpx.Client(base_url=base_url, timeout=10.0) as client:
+            response = client.get("/api/tags")
+            response.raise_for_status()
+            data = response.json()
+            models = data.get("models", [])
+            return [m["name"] for m in models if "name" in m]
+
     def __init__(self, config: LLMProviderConfig) -> None:
         self.config = config
         self.base_url: str = config.base_url or "http://localhost:11434"

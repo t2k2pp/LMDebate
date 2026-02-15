@@ -40,19 +40,24 @@ _TYPE_FIELDS: dict[str, list[tuple[str, str, str]]] = {
         ("model", "モデル名", "例: gemini-2.0-flash"),
     ],
     "ollama": [
-        ("model", "モデル名", "例: llama3"),
         ("base_url", "ベースURL", "例: http://localhost:11434"),
+        ("model", "モデル名", "例: llama3"),
     ],
     "lmstudio": [
         ("base_url", "ベースURL", "例: http://localhost:1234/v1"),
+        ("model", "モデル名", "例: local-model"),
     ],
     "llamacpp": [
         ("base_url", "ベースURL", "例: http://localhost:8080"),
+        ("model", "モデル名", "例: default"),
     ],
 }
 
 # 全タイプの選択肢
 _TYPE_CHOICES: list[str] = list(_TYPE_LABELS.keys())
+
+# モデル取得に対応するローカルプロバイダタイプ
+_MODEL_FETCH_TYPES: set[str] = {"ollama", "lmstudio", "llamacpp"}
 
 
 class _ProviderListItem(ctk.CTkFrame):
@@ -132,8 +137,11 @@ class SettingsView(ctk.CTkFrame):
         super().__init__(master, **kwargs)
         self._app = app
         self._editing_config: LLMProviderConfig | None = None  # 編集中の設定（新規はNone）
-        self._dynamic_field_widgets: dict[str, ctk.CTkEntry] = {}
+        self._dynamic_field_widgets: dict[str, ctk.CTkEntry | ctk.CTkComboBox] = {}
         self._dynamic_field_labels: dict[str, ctk.CTkLabel] = {}
+        self._fetch_models_btn: ctk.CTkButton | None = None
+        self._fetch_status_label: ctk.CTkLabel | None = None
+        self._current_provider_type: str | None = None  # 現在のフォームのプロバイダタイプ
 
         self.grid_columnconfigure(0, minsize=380)
         self.grid_columnconfigure(1, weight=1)
@@ -328,20 +336,70 @@ class SettingsView(ctk.CTkFrame):
             child.destroy()
         self._dynamic_field_widgets.clear()
         self._dynamic_field_labels.clear()
+        self._fetch_models_btn = None
+        self._fetch_status_label = None
+        self._current_provider_type = None
 
     def _build_dynamic_fields(self, provider_type: str) -> None:
-        """タイプに応じた動的フィールドを構築する。"""
+        """タイプに応じた動的フィールドを構築する。
+
+        ローカルプロバイダのモデルフィールドは ComboBox + 取得ボタンで構成する。
+        """
         self._clear_dynamic_fields()
+        self._current_provider_type = provider_type
+        self._fetch_models_btn = None
+        self._fetch_status_label = None
 
+        is_local = provider_type in _MODEL_FETCH_TYPES
         fields = _TYPE_FIELDS.get(provider_type, [])
-        for idx, (field_name, label_text, placeholder) in enumerate(fields):
-            lbl = ctk.CTkLabel(self._dynamic_frame, text=f"{label_text}:", anchor="w")
-            lbl.grid(row=idx * 2, column=0, sticky="w", pady=(4, 0))
-            self._dynamic_field_labels[field_name] = lbl
+        grid_row = 0
 
-            entry = ctk.CTkEntry(self._dynamic_frame, placeholder_text=placeholder)
-            entry.grid(row=idx * 2 + 1, column=0, sticky="ew", pady=(0, 4))
-            self._dynamic_field_widgets[field_name] = entry
+        for field_name, label_text, placeholder in fields:
+            lbl = ctk.CTkLabel(self._dynamic_frame, text=f"{label_text}:", anchor="w")
+            lbl.grid(row=grid_row, column=0, sticky="w", pady=(4, 0))
+            self._dynamic_field_labels[field_name] = lbl
+            grid_row += 1
+
+            if field_name == "model" and is_local:
+                # ローカルプロバイダのモデルフィールド: ComboBox + 取得ボタン
+                model_row = ctk.CTkFrame(self._dynamic_frame, fg_color="transparent")
+                model_row.grid(row=grid_row, column=0, sticky="ew", pady=(0, 4))
+                model_row.grid_columnconfigure(0, weight=1)
+
+                combo = ctk.CTkComboBox(
+                    model_row,
+                    values=[],
+                    state="normal",  # 手動入力も可能
+                )
+                combo.grid(row=0, column=0, sticky="ew", padx=(0, 4))
+                combo.set("")
+                self._dynamic_field_widgets[field_name] = combo
+
+                self._fetch_models_btn = ctk.CTkButton(
+                    model_row,
+                    text="モデル取得",
+                    width=100,
+                    height=28,
+                    command=self._on_fetch_models,
+                )
+                self._fetch_models_btn.grid(row=0, column=1, sticky="e")
+
+                # 取得状態ラベル
+                self._fetch_status_label = ctk.CTkLabel(
+                    self._dynamic_frame,
+                    text="",
+                    anchor="w",
+                    font=ctk.CTkFont(size=11),
+                    text_color="gray",
+                )
+                self._fetch_status_label.grid(row=grid_row + 1, column=0, sticky="w", pady=(0, 2))
+                grid_row += 2
+            else:
+                # 通常のテキスト入力フィールド
+                entry = ctk.CTkEntry(self._dynamic_frame, placeholder_text=placeholder)
+                entry.grid(row=grid_row, column=0, sticky="ew", pady=(0, 4))
+                self._dynamic_field_widgets[field_name] = entry
+                grid_row += 1
 
     def _fill_form(self, config: LLMProviderConfig) -> None:
         """設定データでフォームを埋める。"""
@@ -360,7 +418,10 @@ class SettingsView(ctk.CTkFrame):
         for field_name, widget in self._dynamic_field_widgets.items():
             value = getattr(config, field_name, None)
             if value:
-                widget.insert(0, str(value))
+                if isinstance(widget, ctk.CTkComboBox):
+                    widget.set(str(value))
+                else:
+                    widget.insert(0, str(value))
 
         # 共通設定
         self._max_tokens_entry.delete(0, "end")
@@ -397,6 +458,87 @@ class SettingsView(ctk.CTkFrame):
         type_key = self._get_selected_type_key()
         if type_key:
             self._build_dynamic_fields(type_key)
+
+    def _on_fetch_models(self) -> None:
+        """モデル取得ボタン — ローカルサーバーからモデル一覧を取得する。"""
+        type_key = self._current_provider_type
+        if not type_key or type_key not in _MODEL_FETCH_TYPES:
+            return
+
+        # base_url フィールドから値を取得
+        base_url_widget = self._dynamic_field_widgets.get("base_url")
+        if base_url_widget is None:
+            self._show_error("ベースURLフィールドが見つかりません。")
+            return
+
+        base_url = base_url_widget.get().strip()
+        if not base_url:
+            self._show_error("先にベースURLを入力してください。")
+            return
+
+        # UI更新: ボタン無効化 + ステータス表示
+        if self._fetch_models_btn:
+            self._fetch_models_btn.configure(state="disabled")
+        if self._fetch_status_label:
+            self._fetch_status_label.configure(text="取得中...", text_color="gray")
+
+        # ワーカースレッドで取得
+        thread = threading.Thread(
+            target=self._run_fetch_models,
+            args=(type_key, base_url),
+            daemon=True,
+        )
+        thread.start()
+
+    def _run_fetch_models(self, type_key: str, base_url: str) -> None:
+        """モデル一覧取得の実行（ワーカースレッド）。"""
+        models: list[str] = []
+        error_msg = ""
+        try:
+            if self._app and hasattr(self._app, "llm_service") and self._app.llm_service:
+                models = self._app.llm_service.fetch_models(type_key, base_url)
+            else:
+                error_msg = "LLMサービスが初期化されていません"
+        except Exception as e:
+            error_msg = str(e)
+
+        self.after(0, self._show_fetch_result, models, error_msg)
+
+    def _show_fetch_result(self, models: list[str], error_msg: str) -> None:
+        """モデル取得結果をUIに反映する。"""
+        # ボタンを再有効化
+        if self._fetch_models_btn:
+            self._fetch_models_btn.configure(state="normal")
+
+        model_widget = self._dynamic_field_widgets.get("model")
+        if not isinstance(model_widget, ctk.CTkComboBox):
+            return
+
+        if error_msg:
+            if self._fetch_status_label:
+                self._fetch_status_label.configure(
+                    text=f"取得失敗: {error_msg}", text_color="red"
+                )
+            return
+
+        if not models:
+            if self._fetch_status_label:
+                self._fetch_status_label.configure(
+                    text="モデルが見つかりませんでした", text_color="orange"
+                )
+            return
+
+        # ComboBox にモデル一覧を設定
+        model_widget.configure(values=models)
+        # 現在値が空なら最初のモデルを選択
+        current = model_widget.get().strip()
+        if not current:
+            model_widget.set(models[0])
+
+        if self._fetch_status_label:
+            self._fetch_status_label.configure(
+                text=f"{len(models)}個のモデルを取得しました", text_color="green"
+            )
 
     def _on_new(self) -> None:
         """新規追加ボタン。"""

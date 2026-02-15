@@ -168,6 +168,40 @@ class LLMService:
 
         save_llm_providers(list(self._configs.values()))
 
+    def fetch_models(self, provider_type: str, base_url: str) -> list[str]:
+        """ローカルLLMプロバイダから利用可能なモデル一覧を取得する。
+
+        Parameters
+        ----------
+        provider_type : プロバイダタイプ ("ollama", "lmstudio", "llamacpp")
+        base_url : サーバーのベースURL
+
+        Returns
+        -------
+        list[str]
+            利用可能なモデル名のリスト
+
+        Raises
+        ------
+        ValueError
+            モデル一覧取得に対応していないプロバイダタイプの場合
+        """
+        if provider_type not in _PROVIDER_REGISTRY:
+            raise ValueError(f"未対応のプロバイダタイプです: {provider_type}")
+
+        import importlib
+
+        module_path, class_name = _PROVIDER_REGISTRY[provider_type]
+        module = importlib.import_module(module_path)
+        provider_class = getattr(module, class_name)
+
+        if not hasattr(provider_class, "list_models"):
+            raise ValueError(
+                f"プロバイダタイプ '{provider_type}' はモデル一覧取得に対応していません。"
+            )
+
+        return provider_class.list_models(base_url)
+
     async def generate(
         self,
         provider_id: str,
