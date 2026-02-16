@@ -321,6 +321,8 @@ class DebateService:
             preset=preset,
             attachments=attachments,
             search_results=search_results,
+            current_round=debate.current_round,
+            max_rounds=debate.max_rounds,
         )
 
         # 最終判定強制モード: システムプロンプトに判定強制指示を追加
@@ -393,6 +395,20 @@ class DebateService:
             )
             self._history.save_message(thinking_msg)
             self._messages.append(thinking_msg)
+
+        # 審判が最終ラウンド以前に勝手に判定を出した場合はSKIP扱いにする
+        is_premature_judgment = (
+            "【判定】" in speech
+            and participant.role == ParticipantRole.JUDGE
+            and not force_judgment
+            and debate.current_round < debate.max_rounds
+        )
+        if is_premature_judgment:
+            logger.warning(
+                "審判が最終ラウンド前に判定を出そうとしました（ラウンド%d/%d）。SKIP扱いにします。",
+                debate.current_round, debate.max_rounds,
+            )
+            speech = "SKIP"
 
         # スキップ判定
         if speech.upper() == "SKIP":
@@ -492,13 +508,45 @@ class DebateService:
         """Cが判定を下したかチェックする。"""
         for msg in reversed(self._messages):
             if msg.message_type == MessageType.JUDGMENT:
-                # 判定結果を解析
-                if "Aの" in msg.content or "案Xを支持" in msg.content:
-                    self._debate.winner = "A"
-                elif "Bの" in msg.content or "案Yを支持" in msg.content:
-                    self._debate.winner = "B"
+                # 判定結果を解析（多様なパターンに対応）
+                content = msg.content
+                # A勝利パターン: 案X, A, 案X（A）, 案X(A) 等
+                a_patterns = [
+                    r"案\s*X.*支持", r"案\s*X.*勝", r"Aの.*(?:勝|支持|優)",
+                    r"(?:A|Ａ)\s*を支持", r"(?:A|Ａ)\s*の(?:勝|案|主張)",
+                    r"案\s*X\s*[（(]\s*A\s*[）)]",
+                    r"討論者\s*A", r"参加者\s*A.*支持",
+                ]
+                # B勝利パターン: 案Y, B, 案Y（B）, 案Y(B) 等
+                b_patterns = [
+                    r"案\s*Y.*支持", r"案\s*Y.*勝", r"Bの.*(?:勝|支持|優)",
+                    r"(?:B|Ｂ)\s*を支持", r"(?:B|Ｂ)\s*の(?:勝|案|主張)",
+                    r"案\s*Y\s*[（(]\s*B\s*[）)]",
+                    r"討論者\s*B", r"参加者\s*B.*支持",
+                ]
+
+                is_a = any(re.search(p, content) for p in a_patterns)
+                is_b = any(re.search(p, content) for p in b_patterns)
+
+                if is_a and not is_b:
+                    self._debate.winner = "A（案X）"
+                elif is_b and not is_a:
+                    self._debate.winner = "B（案Y）"
+                elif is_a and is_b:
+                    # 両方マッチした場合は「【判定】」直後のテキストで判断
+                    judgment_section = re.search(r"【判定】(.{0,50})", content)
+                    if judgment_section:
+                        j_text = judgment_section.group(1)
+                        if re.search(r"[AＡ]|案\s*X", j_text):
+                            self._debate.winner = "A（案X）"
+                        elif re.search(r"[BＢ]|案\s*Y", j_text):
+                            self._debate.winner = "B（案Y）"
+                        else:
+                            self._debate.winner = "判定済み（詳細は判定文を参照）"
+                    else:
+                        self._debate.winner = "判定済み（詳細は判定文を参照）"
                 else:
-                    self._debate.winner = "undecided"
+                    self._debate.winner = "判定済み（詳細は判定文を参照）"
                 return True
         return False
 

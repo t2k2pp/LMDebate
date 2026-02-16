@@ -23,6 +23,8 @@ def build_system_prompt(
     preset: RolePreset | None,
     attachments: list[Attachment],
     search_results: list[SearchResult] | None = None,
+    current_round: int = 0,
+    max_rounds: int = 0,
 ) -> str:
     """参加者の役割に応じたシステムプロンプトを構築する。"""
 
@@ -49,6 +51,8 @@ def build_system_prompt(
             attachments=attachments,
             max_tokens=participant.max_tokens_per_turn,
             search_results=search_results,
+            current_round=current_round,
+            max_rounds=max_rounds,
         )
     elif participant.role == ParticipantRole.PROPOSER_B:
         return _build_proposer_prompt(
@@ -63,6 +67,8 @@ def build_system_prompt(
             attachments=attachments,
             max_tokens=participant.max_tokens_per_turn,
             search_results=search_results,
+            current_round=current_round,
+            max_rounds=max_rounds,
         )
     else:  # JUDGE
         return _build_judge_prompt(
@@ -75,6 +81,8 @@ def build_system_prompt(
             attachments=attachments,
             max_tokens=participant.max_tokens_per_turn,
             search_results=search_results,
+            current_round=current_round,
+            max_rounds=max_rounds,
         )
 
 
@@ -90,6 +98,8 @@ def _build_proposer_prompt(
     attachments: list[Attachment],
     max_tokens: int,
     search_results: list[SearchResult] | None = None,
+    current_round: int = 0,
+    max_rounds: int = 0,
 ) -> str:
     lines = [
         f"あなたは公式ディベートの討論者{role_label}です。「{proposal_label}」を支持する立場として参加しています。",
@@ -103,6 +113,11 @@ def _build_proposer_prompt(
         "- 感情的にならず、論理的かつ説得力のある議論を展開してください。",
         "- 相手の発言を無視せず、必ず反論または応答してから自分の主張を展開してください。",
     ]
+
+    if max_rounds > 0:
+        lines.append(f"- このディベートは全{max_rounds}ラウンドあります。現在ラウンド{current_round}です。")
+        lines.append("- 1回の発言で全てを語り尽くさず、複数ラウンドに分けて戦略的に議論を展開してください。")
+        lines.append("- 各ラウンドでは1〜2個の論点に絞って、深く議論してください。")
 
     if personality:
         lines.append(f"\n【あなたの性格】{personality}")
@@ -125,11 +140,13 @@ def _build_proposer_prompt(
     lines.append(f"\n【対立する主張（{opponent_label}）】{opponent_proposal}")
 
     lines.append(
-        f"\n【発言の指針】"
+        f"\n【発言の長さ制限 — 厳守】"
     )
     if search_results:
         lines.append("- ウェブ検索結果を活用し、具体的な根拠やデータを引用して議論を強化してください。")
-    lines.append(f"- <speech>内の発言は{max_tokens}トークン程度に収めてください。")
+    lines.append(f"- <speech>内の発言は厳密に{max_tokens}トークン以内に収めてください。これは絶対的な制限です。")
+    lines.append(f"- 目安: 日本語で約{max_tokens // 2}文字（約{max_tokens // 50}〜{max_tokens // 30}文程度の段落）。")
+    lines.append("- 長い番号付きリストや箇条書きの羅列は禁止です。1〜2個の論点に絞り、簡潔に主張してください。")
     lines.append("- <thinking>内では自由に思考を整理してください（長さ制限なし）。")
 
     lines.append("\n必ず日本語で回答してください。")
@@ -157,21 +174,27 @@ def _build_judge_prompt(
     attachments: list[Attachment],
     max_tokens: int,
     search_results: list[SearchResult] | None = None,
+    current_round: int = 0,
+    max_rounds: int = 0,
 ) -> str:
     lines = [
         "あなたは公式ディベートの判定者（審判）Cです。",
         "",
-        "【審判としてのルール】",
-        "- これは正式なディベート（討論）です。あなたは審判であり、討論者ではありません。",
-        "- 審判は基本的に発言しません。討論者AとBの議論を黙って聞いてください。",
-        "- 通常のラウンドでは「SKIP」してください。これがデフォルトの行動です。",
-        "- 以下の場合のみ発言が許可されます：",
-        "  1. 議論のルール違反があった場合（人身攻撃、論点のすり替え等）",
-        "  2. 議論の方向性が完全にテーマから外れた場合",
-        "  3. 最終判定を下す場合",
-        "- 質問や意見を述べる必要はありません。判定に必要な情報は討論者の発言から得てください。",
-        "- 十分に議論が尽くされたと判断したら、最終判定を下してください。",
+        "【審判としての絶対ルール】",
+        "- あなたは審判であり、討論者ではありません。自分の意見は述べません。",
+        "- 通常のラウンドでは必ず「SKIP」してください。これが最も重要なルールです。",
+        "- 「【判定】」を出してよいのは、システムから「最終判定を下してください」と指示された場合のみです。",
+        "- システムから最終判定の指示がない限り、絶対に判定を下さないでください。",
+        "- ルール違反（人身攻撃、論点のすり替え等）への短い指摘のみ許可されます。",
+        "- 質問や意見やアドバイスを述べる必要はありません。",
     ]
+
+    if max_rounds > 0:
+        lines.append(f"- このディベートは全{max_rounds}ラウンドです。現在ラウンド{current_round}です。")
+        if current_round < max_rounds:
+            lines.append("- まだ議論は続きます。今は絶対にSKIPしてください。判定は出さないでください。")
+        else:
+            lines.append("- 最終ラウンドです。システムから判定指示があれば判定を下してください。")
 
     if personality:
         lines.append(f"\n【あなたの性格】{personality}")
@@ -196,18 +219,11 @@ def _build_judge_prompt(
 
     lines.append(
         "\n【回答方法】"
-        "\n■ 通常（デフォルト）: 発言せずスキップ"
-        '\n  → "<speech>SKIP</speech>" と回答してください。ほとんどのラウンドではこれが正しい行動です。'
+        "\n■ 通常（デフォルト）: 必ずスキップ"
+        '\n  → "<speech>SKIP</speech>" と回答してください。これが正しい行動です。'
         "\n"
-        "\n■ ルール違反や脱線への指摘が必要な場合のみ:"
-        f"\n  → <speech>内に短い指摘を記述（{max_tokens}トークン以内）"
-        "\n"
-        "\n■ 最終判定を下す場合:"
-        "\n  → 以下の形式で回答してください:"
-        "\n  <speech>"
-        "\n  【判定】案X（A）または案Y（B）を支持します。"
-        "\n  【理由】判定理由を論理的に説明"
-        "\n  </speech>"
+        "\n■ ルール違反への指摘（稀なケースのみ）:"
+        f"\n  → <speech>内に短い指摘のみ記述（{max_tokens}トークン以内）。判定は出さないこと。"
     )
 
     lines.append("\n必ず日本語で回答してください。")
@@ -215,11 +231,10 @@ def _build_judge_prompt(
     lines.append(
         "\n以下の形式で回答してください:\n"
         "<thinking>\n"
-        "（ここで両者の議論を分析し、それぞれの論点の強弱を評価する。判定を下すべきか検討する）\n"
+        "（両者の議論を分析し、論点を整理する。ただし今回は判定を下さない）\n"
         "</thinking>\n"
         "<speech>\n"
         "SKIP\n"
-        "（通常はSKIPです。指摘や最終判定が必要な場合のみ発言内容を記述）\n"
         "</speech>"
     )
 
