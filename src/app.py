@@ -16,6 +16,7 @@ from src.services.preset_service import PresetService
 from src.services.attachment_service import AttachmentService
 from src.services.debate_service import DebateService
 from src.services.search_service import SearchService
+from src.services.tts_service import TTSService
 from src.services.export_service import ExportService
 
 logger = logging.getLogger(__name__)
@@ -65,6 +66,8 @@ class App:
             search_service=self._search_service,
         )
 
+        self._tts_service: TTSService = TTSService()
+
         self._export_service: ExportService = ExportService(self._export_dir)
 
         logger.info("アプリケーションの初期化が完了しました。")
@@ -106,6 +109,10 @@ class App:
     @property
     def search_service(self) -> SearchService:
         return self._search_service
+
+    @property
+    def tts_service(self) -> TTSService:
+        return self._tts_service
 
     @property
     def export_service(self) -> ExportService:

@@ -10,6 +10,7 @@ import customtkinter as ctk
 from src.models.debate import Debate, DebateStatus
 from src.models.message import Message, MessageType
 from src.models.participant import Participant, ParticipantRole, ParticipantType
+from src.ui.components.markdown_text import MarkdownText
 from src.ui.components.message_bubble import _ROLE_COLORS, _SKIP_COLORS
 from src.ui.components.thinking_panel import ThinkingPanel
 
@@ -469,18 +470,17 @@ class HistoryView(ctk.CTkFrame):
             self._thinking_panels.append(panel)
             block_row += 1
 
-        # 発言
+        # 発言（Markdown対応）
         if speech and not is_skip:
             role_colors = _ROLE_COLORS.get(role_key, _ROLE_COLORS["A"])
-            ctk.CTkLabel(
+            md_text = MarkdownText(
                 block,
                 text=speech,
                 text_color=role_colors["content_fg"],
-                font=ctk.CTkFont(size=13),
-                anchor="nw",
-                justify="left",
-                wraplength=500,
-            ).grid(row=block_row, column=0, sticky="w", padx=14, pady=(4, 10))
+                font_size=13,
+                wrap_width=500,
+            )
+            md_text.grid(row=block_row, column=0, sticky="ew", padx=14, pady=(4, 10))
             block_row += 1
 
         return row + 1

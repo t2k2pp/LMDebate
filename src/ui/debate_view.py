@@ -110,6 +110,21 @@ class DebateView(ctk.CTkFrame):
         )
         self._stop_btn.pack(side="left", padx=4)
 
+        # TTS トグル
+        self._tts_var = ctk.BooleanVar(value=False)
+        self._tts_cb = ctk.CTkCheckBox(
+            btn_frame,
+            text="🔊 読み上げ",
+            variable=self._tts_var,
+            command=self._on_tts_toggle,
+            width=100,
+        )
+        # TTS利用可能な場合のみ表示
+        tts_available = (self._app and hasattr(self._app, "tts_service")
+                         and self._app.tts_service and self._app.tts_service.is_available)
+        if tts_available:
+            self._tts_cb.pack(side="left", padx=(12, 4))
+
         # --- メインエリア ---
         main_area = ctk.CTkFrame(self, fg_color="transparent")
         main_area.grid(row=1, column=0, sticky="nsew", padx=4, pady=4)
@@ -329,6 +344,11 @@ class DebateView(ctk.CTkFrame):
                 emoji = analyze_sentiment(message.content)
                 card.set_emoji(emoji)
 
+        # TTS 読み上げ（speech / judgment のみ）
+        if message.message_type in (MessageType.SPEECH, MessageType.JUDGMENT):
+            if self._app and hasattr(self._app, "tts_service") and self._app.tts_service:
+                self._app.tts_service.speak(message.content, participant.name)
+
     def _ui_on_turn_start(self, participant: Participant) -> None:
         """ターン開始時のUI更新。"""
         # 全カードを待機中に
@@ -379,6 +399,10 @@ class DebateView(ctk.CTkFrame):
         self._debate = debate
         self._disable_input()
         self._remove_loading_indicator()
+
+        # TTS停止
+        if self._app and hasattr(self._app, "tts_service") and self._app.tts_service:
+            self._app.tts_service.stop()
 
         for card in self._participant_cards.values():
             card.update_status("完了")
@@ -544,6 +568,12 @@ class DebateView(ctk.CTkFrame):
         """実際のディベート終了処理。"""
         if self._app and hasattr(self._app, "debate_service") and self._app.debate_service:
             self._app.debate_service.stop_debate()
+
+    def _on_tts_toggle(self) -> None:
+        """TTS読み上げチェックボックスの切替。"""
+        enabled = self._tts_var.get()
+        if self._app and hasattr(self._app, "tts_service") and self._app.tts_service:
+            self._app.tts_service.set_enabled(enabled)
 
     def _disable_input(self) -> None:
         """入力欄を無効化する。"""

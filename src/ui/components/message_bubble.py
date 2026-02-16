@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import customtkinter as ctk
 
+from src.ui.components.markdown_text import MarkdownText
+
 
 # ロール別カラー設定
 _ROLE_COLORS: dict[str, dict[str, str]] = {
@@ -155,13 +157,12 @@ class MessageBubble(ctk.CTkFrame):
             if message_type == "thinking":
                 content_fg = role_colors["round_fg"]
 
-            content_label = ctk.CTkLabel(
+            # Markdown対応テキスト表示
+            md_text = MarkdownText(
                 self,
                 text=content,
                 text_color=content_fg,
-                font=ctk.CTkFont(size=13),
-                wraplength=500,
-                justify="left",
-                anchor="nw",
+                font_size=13,
+                wrap_width=500,
             )
-            content_label.pack(fill="x", padx=14, pady=(4, 10))
+            md_text.pack(fill="x", padx=14, pady=(4, 10))

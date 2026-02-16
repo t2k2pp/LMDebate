@@ -318,6 +318,16 @@ def parse_llm_response(response: str) -> tuple[str, str]:
     speech_match = re.search(r"<speech>(.*?)</speech>", response, re.DOTALL)
 
     thinking = thinking_match.group(1).strip() if thinking_match else ""
-    speech = speech_match.group(1).strip() if speech_match else response.strip()
+
+    if speech_match:
+        speech = speech_match.group(1).strip()
+    else:
+        # <speech>タグがない場合: <thinking>タグ部分を除去してから残りをspeechとする
+        fallback = response
+        fallback = re.sub(r"<thinking>.*?</thinking>", "", fallback, flags=re.DOTALL)
+        speech = fallback.strip()
+
+    # speechから残っている可能性のあるタグを除去
+    speech = re.sub(r"</?(?:thinking|speech)>", "", speech).strip()
 
     return thinking, speech

@@ -832,10 +832,14 @@ class SettingsView(ctk.CTkFrame):
         error_msg = ""
         try:
             import httpx
-            with httpx.Client(timeout=10.0) as client:
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) LMDebate/1.0",
+                "Accept": "application/json",
+            }
+            with httpx.Client(timeout=10.0, headers=headers) as client:
                 response = client.get(
                     f"{url.rstrip('/')}/search",
-                    params={"q": "test", "format": "json"},
+                    params={"q": "test", "format": "json", "categories": "general"},
                 )
                 response.raise_for_status()
                 data = response.json()
