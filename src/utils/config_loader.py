@@ -51,6 +51,15 @@ def load_llm_providers() -> list[LLMProviderConfig]:
     return [LLMProviderConfig.from_dict(p) for p in data["providers"]]
 
 
+def save_app_settings(settings: AppSettings) -> None:
+    """AppSettings を config/default_settings.json に保存する。"""
+    settings_path = PROJECT_ROOT / "config" / "default_settings.json"
+    data = settings.to_dict()
+    with open(settings_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+
+
 def save_llm_providers(configs: list[LLMProviderConfig]) -> None:
     """LLMProviderConfig のリストを config/llm_providers.json に保存する。"""
     providers_path = PROJECT_ROOT / "config" / "llm_providers.json"

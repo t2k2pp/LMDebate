@@ -1,10 +1,13 @@
 """ディベート進行管理サービス"""
 
+from __future__ import annotations
+
 import asyncio
+import logging
 import re
 import threading
 from datetime import datetime
-from typing import Callable
+from typing import Callable, TYPE_CHECKING
 
 from src.models.debate import Debate, DebateStatus
 from src.models.participant import Participant, ParticipantRole, ParticipantType
@@ -16,6 +19,11 @@ from src.utils.prompt_builder import (
     parse_llm_response,
 )
 from src.utils.token_counter import count_tokens
+
+if TYPE_CHECKING:
+    from src.services.search_service import SearchService
+
+logger = logging.getLogger(__name__)
 
 
 class DebateService:
@@ -32,11 +40,13 @@ class DebateService:
         ParticipantRole.JUDGE,
     ]
 
-    def __init__(self, history_service, llm_service, preset_service, attachment_service):
+    def __init__(self, history_service, llm_service, preset_service, attachment_service,
+                 search_service: SearchService | None = None):
         self._history = history_service
         self._llm = llm_service
         self._preset = preset_service
         self._attachment = attachment_service
+        self._search = search_service
 
         self._debate: Debate | None = None
         self._participants: dict[str, Participant] = {}
@@ -215,6 +225,49 @@ class DebateService:
             if self._on_error:
                 self._on_error(str(e))
 
+    def _generate_search_query(self, participant: Participant, debate: Debate) -> str:
+        """LLMに検索クエリを生成させる。"""
+        query_prompt = (
+            "あなたはディベートの参加者です。\n"
+            f"議論テーマ: {debate.topic}\n"
+            "これから発言するために、ウェブ検索で裏付けとなる情報を探したいです。\n"
+            "最も効果的な検索クエリを1つだけ、簡潔に（日本語または英語で）出力してください。\n"
+            "検索クエリのみを出力し、他の文章は不要です。"
+        )
+        # 最近の会話の要約を含める
+        recent_messages = self._messages[-6:] if self._messages else []
+        context_parts = []
+        for msg in recent_messages:
+            p = self._participants.get(msg.participant_id)
+            if p and msg.message_type in (MessageType.SPEECH, MessageType.JUDGMENT):
+                label = "A" if p.role == ParticipantRole.PROPOSER_A else (
+                    "B" if p.role == ParticipantRole.PROPOSER_B else "C"
+                )
+                context_parts.append(f"{label}: {msg.content[:200]}")
+
+        if context_parts:
+            query_prompt += "\n\n最近の議論:\n" + "\n".join(context_parts)
+
+        try:
+            loop = asyncio.new_event_loop()
+            response = loop.run_until_complete(
+                self._llm.generate(
+                    provider_id=participant.llm_provider,
+                    system_prompt=query_prompt,
+                    messages=[],
+                    max_tokens=50,
+                    temperature=0.3,
+                )
+            )
+            loop.close()
+            query = response.content.strip().strip('"').strip("'")
+            logger.info("検索クエリ生成: participant=%s, query=%r", participant.name, query)
+            return query
+        except Exception as e:
+            logger.warning("検索クエリ生成に失敗: %s", e)
+            # フォールバック: テーマをそのままクエリに使用
+            return debate.topic
+
     def _execute_llm_turn(self, participant: Participant):
         """LLMの発言ターンを実行する。"""
         debate = self._debate
@@ -229,6 +282,25 @@ class DebateService:
         # 添付ファイル
         attachments = self._attachments.get(participant.role.value, [])
 
+        # Web検索（有効な場合）
+        search_results = None
+        if (participant.enable_web_search
+                and self._search is not None
+                and self._search.is_configured):
+            try:
+                query = self._generate_search_query(participant, debate)
+                search_results = self._search.search(
+                    query=query,
+                    max_results=participant.max_search_count,
+                )
+                if search_results:
+                    logger.info(
+                        "Web検索完了: participant=%s, 結果=%d件",
+                        participant.name, len(search_results),
+                    )
+            except Exception as e:
+                logger.warning("Web検索に失敗しました: %s", e)
+
         # システムプロンプト構築
         system_prompt = build_system_prompt(
             participant=participant,
@@ -238,6 +310,7 @@ class DebateService:
             judge_instruction=debate.judge_instruction,
             preset=preset,
             attachments=attachments,
+            search_results=search_results,
         )
 
         # 会話履歴構築

@@ -30,6 +30,8 @@ class Participant:
     custom_guidelines: str | None = None
     max_tokens_per_turn: int = 500
     include_own_thinking: bool = True
+    enable_web_search: bool = False
+    max_search_count: int = 3
     id: str = field(default_factory=lambda: str(uuid4()))
 
     def to_dict(self) -> dict:
@@ -47,6 +49,8 @@ class Participant:
             "custom_guidelines": self.custom_guidelines,
             "max_tokens_per_turn": self.max_tokens_per_turn,
             "include_own_thinking": self.include_own_thinking,
+            "enable_web_search": self.enable_web_search,
+            "max_search_count": self.max_search_count,
         }
 
     @classmethod
@@ -65,4 +69,6 @@ class Participant:
             custom_guidelines=data.get("custom_guidelines"),
             max_tokens_per_turn=data.get("max_tokens_per_turn", 500),
             include_own_thinking=bool(data.get("include_own_thinking", True)),
+            enable_web_search=bool(data.get("enable_web_search", False)),
+            max_search_count=data.get("max_search_count", 3),
         )

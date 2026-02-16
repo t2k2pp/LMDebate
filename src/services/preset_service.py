@@ -50,36 +50,40 @@ class PresetService:
         self._presets = self._list_presets_from_db()
 
     def _get_preset_from_db(self, preset_id: str) -> RolePreset | None:
-        conn = self._history_service._conn
-        cursor = conn.execute("SELECT * FROM role_presets WHERE id = ?", (preset_id,))
-        row = cursor.fetchone()
+        with self._history_service._lock:
+            conn = self._history_service._conn
+            cursor = conn.execute("SELECT * FROM role_presets WHERE id = ?", (preset_id,))
+            row = cursor.fetchone()
         if row is None:
             return None
         return self._row_to_preset(row)
 
     def _save_preset_to_db(self, preset: RolePreset):
-        conn = self._history_service._conn
-        conn.execute(
-            """INSERT OR REPLACE INTO role_presets
-               (id, name, role_description, personality, guidelines, target_role, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                preset.id,
-                preset.name,
-                preset.role_description,
-                preset.personality,
-                preset.guidelines,
-                preset.target_role.value,
-                preset.created_at.isoformat() if isinstance(preset.created_at, datetime) else preset.created_at,
-                preset.updated_at.isoformat() if isinstance(preset.updated_at, datetime) else preset.updated_at,
-            ),
-        )
-        conn.commit()
+        with self._history_service._lock:
+            conn = self._history_service._conn
+            conn.execute(
+                """INSERT OR REPLACE INTO role_presets
+                   (id, name, role_description, personality, guidelines, target_role, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    preset.id,
+                    preset.name,
+                    preset.role_description,
+                    preset.personality,
+                    preset.guidelines,
+                    preset.target_role.value,
+                    preset.created_at.isoformat() if isinstance(preset.created_at, datetime) else preset.created_at,
+                    preset.updated_at.isoformat() if isinstance(preset.updated_at, datetime) else preset.updated_at,
+                ),
+            )
+            conn.commit()
 
     def _list_presets_from_db(self) -> list[RolePreset]:
-        conn = self._history_service._conn
-        cursor = conn.execute("SELECT * FROM role_presets ORDER BY name")
-        return [self._row_to_preset(row) for row in cursor.fetchall()]
+        with self._history_service._lock:
+            conn = self._history_service._conn
+            cursor = conn.execute("SELECT * FROM role_presets ORDER BY name")
+            rows = cursor.fetchall()
+        return [self._row_to_preset(row) for row in rows]
 
     def _row_to_preset(self, row) -> RolePreset:
         return RolePreset(
@@ -127,9 +131,10 @@ class PresetService:
     def delete_preset(self, preset_id: str) -> bool:
         """プリセットを削除する。"""
         if self._history_service:
-            conn = self._history_service._conn
-            conn.execute("DELETE FROM role_presets WHERE id = ?", (preset_id,))
-            conn.commit()
+            with self._history_service._lock:
+                conn = self._history_service._conn
+                conn.execute("DELETE FROM role_presets WHERE id = ?", (preset_id,))
+                conn.commit()
         before = len(self._presets)
         self._presets = [p for p in self._presets if p.id != preset_id]
         return len(self._presets) < before

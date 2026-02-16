@@ -16,10 +16,16 @@ class AppSettings:
     default_max_tokens_per_turn: int = 500
     default_c_skip_timeout_sec: int = 5
     default_include_own_thinking: bool = True
+    searxng_base_url: str = ""
 
     @classmethod
     def from_dict(cls, data: dict) -> "AppSettings":
         return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+
+    def to_dict(self) -> dict:
+        """dict形式に変換する。"""
+        import dataclasses
+        return dataclasses.asdict(self)
 
 
 @dataclass

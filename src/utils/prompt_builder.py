@@ -1,11 +1,17 @@
 """LLMプロンプト構築ユーティリティ"""
 
+from __future__ import annotations
+
 import re
+from typing import TYPE_CHECKING
 
 from src.models.participant import Participant, ParticipantRole
 from src.models.message import Message, MessageType
 from src.models.role_preset import RolePreset
 from src.models.attachment import Attachment
+
+if TYPE_CHECKING:
+    from src.services.search_service import SearchResult
 
 
 def build_system_prompt(
@@ -16,6 +22,7 @@ def build_system_prompt(
     judge_instruction: str,
     preset: RolePreset | None,
     attachments: list[Attachment],
+    search_results: list[SearchResult] | None = None,
 ) -> str:
     """参加者の役割に応じたシステムプロンプトを構築する。"""
 
@@ -41,6 +48,7 @@ def build_system_prompt(
             guidelines=guidelines,
             attachments=attachments,
             max_tokens=participant.max_tokens_per_turn,
+            search_results=search_results,
         )
     elif participant.role == ParticipantRole.PROPOSER_B:
         return _build_proposer_prompt(
@@ -54,6 +62,7 @@ def build_system_prompt(
             guidelines=guidelines,
             attachments=attachments,
             max_tokens=participant.max_tokens_per_turn,
+            search_results=search_results,
         )
     else:  # JUDGE
         return _build_judge_prompt(
@@ -65,6 +74,7 @@ def build_system_prompt(
             guidelines=guidelines,
             attachments=attachments,
             max_tokens=participant.max_tokens_per_turn,
+            search_results=search_results,
         )
 
 
@@ -79,6 +89,7 @@ def _build_proposer_prompt(
     guidelines: str,
     attachments: list[Attachment],
     max_tokens: int,
+    search_results: list[SearchResult] | None = None,
 ) -> str:
     lines = [f"あなたは「{proposal_label}」の推進者{role_label}です。"]
 
@@ -95,6 +106,11 @@ def _build_proposer_prompt(
     if attachment_text:
         lines.append(f"\n--- 参考資料（あなたの主張の根拠）---\n{attachment_text}\n--- 参考資料ここまで ---")
 
+    # ウェブ検索結果
+    search_text = _build_search_results_text(search_results)
+    if search_text:
+        lines.append(f"\n--- ウェブ検索結果 ---\n{search_text}\n--- ウェブ検索結果ここまで ---")
+
     lines.append(f"\n【対立する主張（{opponent_label}）】{opponent_proposal}")
 
     lines.append(
@@ -102,6 +118,8 @@ def _build_proposer_prompt(
     )
     if personality or guidelines:
         lines.append("あなたの性格と行動指針に従って議論を展開してください。")
+    if search_results:
+        lines.append("ウェブ検索結果を参考にして、具体的な根拠やデータを引用して議論を強化してください。")
     lines.append(f"1回の発言は簡潔にまとめてください（目安: {max_tokens}トークン以内）。")
 
     lines.append(
@@ -122,6 +140,7 @@ def _build_judge_prompt(
     guidelines: str,
     attachments: list[Attachment],
     max_tokens: int,
+    search_results: list[SearchResult] | None = None,
 ) -> str:
     lines = ["あなたは判定者Cです。AとBの議論を聞いています。"]
 
@@ -140,6 +159,11 @@ def _build_judge_prompt(
     attachment_text = _build_attachment_text(attachments)
     if attachment_text:
         lines.append(f"\n--- 参考資料 ---\n{attachment_text}\n--- 参考資料ここまで ---")
+
+    # ウェブ検索結果
+    search_text = _build_search_results_text(search_results)
+    if search_text:
+        lines.append(f"\n--- ウェブ検索結果 ---\n{search_text}\n--- ウェブ検索結果ここまで ---")
 
     lines.append(
         f"\n今のラウンドで質問や意見がある場合は発言してください（目安: {max_tokens}トークン以内）。\n"
@@ -169,6 +193,21 @@ def _build_attachment_text(attachments: list[Attachment]) -> str:
             texts.append(f"[{att.original_filename}]\n{att.extracted_text}")
         else:
             texts.append(f"[{att.original_filename}] (テキスト抽出不可)")
+    return "\n\n".join(texts)
+
+
+def _build_search_results_text(search_results: list[SearchResult] | None) -> str:
+    """検索結果をプロンプト用テキストに変換する。"""
+    if not search_results:
+        return ""
+    texts = []
+    for i, result in enumerate(search_results, 1):
+        parts = [f"[{i}] {result.title}"]
+        if result.url:
+            parts.append(f"    URL: {result.url}")
+        if result.content:
+            parts.append(f"    {result.content}")
+        texts.append("\n".join(parts))
     return "\n\n".join(texts)
 
 

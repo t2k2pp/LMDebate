@@ -175,6 +175,36 @@ class SettingsView(ctk.CTkFrame):
         self._list_scroll.grid(row=1, column=0, sticky="nsew", padx=4, pady=4)
         self._list_scroll.grid_columnconfigure(0, weight=1)
 
+        # --- SearXNG URL設定 ---
+        searxng_frame = ctk.CTkFrame(left_frame)
+        searxng_frame.grid(row=2, column=0, sticky="ew", padx=4, pady=(4, 8))
+        searxng_frame.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            searxng_frame, text="ウェブ検索 (SearXNG)",
+            font=ctk.CTkFont(size=13, weight="bold"), anchor="w",
+        ).grid(row=0, column=0, columnspan=2, sticky="w", padx=8, pady=(8, 4))
+
+        ctk.CTkLabel(
+            searxng_frame, text="ベースURL:", anchor="w",
+        ).grid(row=1, column=0, sticky="w", padx=8, pady=(0, 2))
+
+        self._searxng_url_entry = ctk.CTkEntry(
+            searxng_frame, placeholder_text="例: http://localhost:8888",
+        )
+        self._searxng_url_entry.grid(row=2, column=0, sticky="ew", padx=8, pady=(0, 4))
+
+        self._searxng_save_btn = ctk.CTkButton(
+            searxng_frame, text="保存", width=80, command=self._on_save_searxng,
+        )
+        self._searxng_save_btn.grid(row=2, column=1, sticky="e", padx=(4, 8), pady=(0, 4))
+
+        self._searxng_status_label = ctk.CTkLabel(
+            searxng_frame, text="", anchor="w",
+            font=ctk.CTkFont(size=11), text_color="gray",
+        )
+        self._searxng_status_label.grid(row=3, column=0, columnspan=2, sticky="w", padx=8, pady=(0, 8))
+
         # ======================
         # 右パネル: 編集フォーム
         # ======================
@@ -768,6 +798,33 @@ class SettingsView(ctk.CTkFrame):
     # ライフサイクル
     # ==================================================================
 
+    def _on_save_searxng(self) -> None:
+        """SearXNG URL保存ボタン。"""
+        url = self._searxng_url_entry.get().strip()
+        try:
+            if self._app and hasattr(self._app, "settings"):
+                self._app.settings.searxng_base_url = url
+                # SearchServiceも更新
+                if hasattr(self._app, "search_service") and self._app.search_service:
+                    self._app.search_service.update_base_url(url)
+                # JSONに保存
+                from src.utils.config_loader import save_app_settings
+                save_app_settings(self._app.settings)
+                self._searxng_status_label.configure(text="保存しました", text_color="green")
+        except Exception as e:
+            self._searxng_status_label.configure(
+                text=f"保存失敗: {e}", text_color="red"
+            )
+
     def on_show(self) -> None:
         """ビュー表示時にプロバイダ一覧を再読み込みする。"""
         self._load_providers()
+        # SearXNG URL読み込み
+        try:
+            if self._app and hasattr(self._app, "settings"):
+                current_url = self._app.settings.searxng_base_url or ""
+                self._searxng_url_entry.delete(0, "end")
+                self._searxng_url_entry.insert(0, current_url)
+                self._searxng_status_label.configure(text="")
+        except Exception:
+            pass

@@ -15,6 +15,7 @@ from src.services.llm_service import LLMService
 from src.services.preset_service import PresetService
 from src.services.attachment_service import AttachmentService
 from src.services.debate_service import DebateService
+from src.services.search_service import SearchService
 from src.services.export_service import ExportService
 
 logger = logging.getLogger(__name__)
@@ -52,11 +53,16 @@ class App:
 
         self._attachment_service: AttachmentService = AttachmentService(self._attachments_dir)
 
+        self._search_service: SearchService = SearchService(
+            base_url=self._settings.searxng_base_url,
+        )
+
         self._debate_service: DebateService = DebateService(
             history_service=self._history_service,
             llm_service=self._llm_service,
             preset_service=self._preset_service,
             attachment_service=self._attachment_service,
+            search_service=self._search_service,
         )
 
         self._export_service: ExportService = ExportService(self._export_dir)
@@ -96,6 +102,10 @@ class App:
     @property
     def debate_service(self) -> DebateService:
         return self._debate_service
+
+    @property
+    def search_service(self) -> SearchService:
+        return self._search_service
 
     @property
     def export_service(self) -> ExportService:

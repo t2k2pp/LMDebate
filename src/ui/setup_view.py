@@ -201,6 +201,32 @@ class _ParticipantSection(ctk.CTkFrame):
         )
         row += 1
 
+        # --- ウェブ検索設定 ---
+        self._web_search_var = ctk.BooleanVar(value=False)
+        self._web_search_cb = ctk.CTkCheckBox(
+            self,
+            text="ウェブ検索を有効にする",
+            variable=self._web_search_var,
+            command=self._on_web_search_toggled,
+        )
+        self._web_search_cb.grid(
+            row=row, column=0, columnspan=3, sticky="w", padx=8, pady=2
+        )
+        row += 1
+
+        search_count_frame = ctk.CTkFrame(self, fg_color="transparent")
+        search_count_frame.grid(
+            row=row, column=0, columnspan=3, sticky="w", padx=24, pady=2
+        )
+        ctk.CTkLabel(search_count_frame, text="最大検索回数/ターン:").pack(
+            side="left", padx=(0, 4)
+        )
+        self._max_search_count_entry = ctk.CTkEntry(search_count_frame, width=60)
+        self._max_search_count_entry.pack(side="left", padx=4)
+        self._max_search_count_entry.insert(0, "3")
+        self._max_search_count_entry.configure(state="disabled")
+        row += 1
+
         # --- スキップタイムアウト（Cのみ） ---
         if self._show_skip_timeout:
             timeout_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -267,6 +293,8 @@ class _ParticipantSection(ctk.CTkFrame):
             self._custom_toggle_btn.configure(state="disabled")
             self._max_tokens_entry.configure(state="disabled")
             self._include_thinking_cb.configure(state="disabled")
+            self._web_search_cb.configure(state="disabled")
+            self._max_search_count_entry.configure(state="disabled")
             self._custom_role_desc.configure(state="disabled")
             self._custom_personality.configure(state="disabled")
             self._custom_guidelines.configure(state="disabled")
@@ -275,6 +303,9 @@ class _ParticipantSection(ctk.CTkFrame):
             self._llm_combo.configure(state="normal")
             self._max_tokens_entry.configure(state="normal")
             self._include_thinking_cb.configure(state="normal")
+            self._web_search_cb.configure(state="normal")
+            if self._web_search_var.get():
+                self._max_search_count_entry.configure(state="normal")
             self._custom_toggle_btn.configure(state="normal")
             if self._is_custom_mode:
                 self._preset_combo.configure(state="disabled")
@@ -286,6 +317,13 @@ class _ParticipantSection(ctk.CTkFrame):
                 self._custom_role_desc.configure(state="disabled")
                 self._custom_personality.configure(state="disabled")
                 self._custom_guidelines.configure(state="disabled")
+
+    def _on_web_search_toggled(self) -> None:
+        """ウェブ検索チェックボックスの切り替え時に検索回数入力を制御する。"""
+        if self._web_search_var.get():
+            self._max_search_count_entry.configure(state="normal")
+        else:
+            self._max_search_count_entry.configure(state="disabled")
 
     def _on_preset_selected(self, choice: str) -> None:
         """プリセット選択時に読み取り専用表示を更新する。"""
@@ -359,6 +397,13 @@ class _ParticipantSection(ctk.CTkFrame):
         except ValueError:
             max_tokens = 500
 
+        # ウェブ検索設定
+        enable_web_search = self._web_search_var.get() if ptype == ParticipantType.LLM else False
+        try:
+            max_search_count = int(self._max_search_count_entry.get())
+        except ValueError:
+            max_search_count = 3
+
         return Participant(
             debate_id=debate_id,
             role=self._role,
@@ -372,6 +417,8 @@ class _ParticipantSection(ctk.CTkFrame):
             custom_guidelines=custom_guidelines,
             max_tokens_per_turn=max_tokens,
             include_own_thinking=self._include_thinking_var.get(),
+            enable_web_search=enable_web_search,
+            max_search_count=max_search_count,
         )
 
     def validate(self) -> str | None:
@@ -407,6 +454,15 @@ class _ParticipantSection(ctk.CTkFrame):
             llm_name = self._llm_combo.get()
             if not llm_name or llm_name == "(未設定)":
                 return f"{label}: LLMプロバイダを選択してください。"
+
+        # ウェブ検索回数の検証
+        if self._web_search_var.get():
+            try:
+                count = int(self._max_search_count_entry.get())
+                if count < 1 or count > 10:
+                    return f"{label}: 最大検索回数は1〜10の範囲で入力してください。"
+            except ValueError:
+                return f"{label}: 最大検索回数は整数で入力してください。"
 
         return None
 
