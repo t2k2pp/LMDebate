@@ -278,7 +278,7 @@ class DebateService:
             # フォールバック: テーマをそのままクエリに使用
             return debate.topic
 
-    def _execute_llm_turn(self, participant: Participant):
+    def _execute_llm_turn(self, participant: Participant, force_judgment: bool = False):
         """LLMの発言ターンを実行する。"""
         debate = self._debate
         if debate is None:
@@ -322,6 +322,19 @@ class DebateService:
             attachments=attachments,
             search_results=search_results,
         )
+
+        # 最終判定強制モード: システムプロンプトに判定強制指示を追加
+        if force_judgment:
+            system_prompt += (
+                "\n\n"
+                "【重要：最終判定指示】\n"
+                "最終ラウンドに到達しました。あなたは今すぐ最終判定を下さなければなりません。\n"
+                "SKIPは絶対に許可されません。必ず以下の形式で判定を下してください：\n"
+                "<speech>\n"
+                "【判定】案X（A）または案Y（B）を支持します。\n"
+                "【理由】これまでの議論を踏まえた判定理由を述べてください。\n"
+                "</speech>"
+            )
 
         # 会話履歴構築
         history = build_conversation_history(
@@ -507,5 +520,23 @@ class DebateService:
         )
         self._messages.append(final_prompt_msg)
 
-        # 強制判定プロンプトを追加して実行
-        self._execute_llm_turn(judge)
+        # 強制判定モードでLLMターン実行（SKIPを無効化）
+        self._execute_llm_turn(judge, force_judgment=True)
+
+        # 判定が出なかった場合はリトライ（最大2回）
+        for retry in range(2):
+            if self._check_judgment():
+                return  # 判定済み
+            # まだSKIPされた場合、もう一度強制
+            logger.warning("最終判定がスキップされました。リトライ %d/2", retry + 1)
+            retry_msg = Message(
+                debate_id=self._debate.id,
+                participant_id="system",
+                round_number=self._debate.current_round,
+                message_type=MessageType.SPEECH,
+                content="【システム】判定が下されていません。SKIPは無効です。"
+                        "必ず「【判定】」を含む発言で最終判定を下してください。",
+                token_count=0,
+            )
+            self._messages.append(retry_msg)
+            self._execute_llm_turn(judge, force_judgment=True)

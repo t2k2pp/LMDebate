@@ -128,10 +128,21 @@ class HistoryView(ctk.CTkFrame):
         btn_frame = ctk.CTkFrame(detail_header, fg_color="transparent")
         btn_frame.grid(row=0, column=1, sticky="e")
 
+        self._retry_btn = ctk.CTkButton(
+            btn_frame,
+            text="複製してリトライ",
+            width=130,
+            fg_color="#2563eb",
+            hover_color="#1d4ed8",
+            command=self._on_retry,
+            state="disabled",
+        )
+        self._retry_btn.pack(side="left", padx=4)
+
         self._export_btn = ctk.CTkButton(
             btn_frame,
-            text="Markdownエクスポート",
-            width=170,
+            text="MDエクスポート",
+            width=120,
             command=self._on_export,
             state="disabled",
         )
@@ -148,15 +159,53 @@ class HistoryView(ctk.CTkFrame):
         )
         self._delete_btn.pack(side="left", padx=4)
 
+        # チェックボックス行
+        cb_frame = ctk.CTkFrame(right_frame, fg_color="transparent")
+        cb_frame.grid(row=1, column=0, sticky="w", padx=12, pady=4)
+
         # 思考表示チェックボックス
         self._thinking_var = ctk.BooleanVar(value=False)
         self._thinking_cb = ctk.CTkCheckBox(
-            right_frame,
+            cb_frame,
             text="思考（thinking）を表示する",
             variable=self._thinking_var,
             command=self._on_thinking_toggle,
         )
-        self._thinking_cb.grid(row=1, column=0, sticky="w", padx=12, pady=4)
+        self._thinking_cb.pack(side="left", padx=(0, 16))
+
+        # TTS読み上げ
+        self._tts_var = ctk.BooleanVar(value=False)
+        self._tts_play_btn = None
+        self._tts_stop_btn = None
+        tts_available = (self._app and hasattr(self._app, "tts_service")
+                         and self._app.tts_service and self._app.tts_service.is_available)
+        if tts_available:
+            self._tts_cb = ctk.CTkCheckBox(
+                cb_frame,
+                text="🔊 読み上げ",
+                variable=self._tts_var,
+                command=self._on_tts_toggle,
+            )
+            self._tts_cb.pack(side="left", padx=(0, 8))
+
+            self._tts_play_btn = ctk.CTkButton(
+                cb_frame,
+                text="▶ 全文読み上げ",
+                width=120,
+                command=self._on_tts_play_all,
+                state="disabled",
+            )
+            self._tts_play_btn.pack(side="left", padx=4)
+
+            self._tts_stop_btn = ctk.CTkButton(
+                cb_frame,
+                text="■ 停止",
+                width=60,
+                fg_color="gray40",
+                hover_color="gray30",
+                command=self._on_tts_stop,
+            )
+            self._tts_stop_btn.pack(side="left", padx=4)
 
         # 詳細コンテンツ（スクロール可能）
         self._detail_scroll = ctk.CTkScrollableFrame(right_frame)
@@ -205,6 +254,9 @@ class HistoryView(ctk.CTkFrame):
         self._selected_debate = debate
         self._export_btn.configure(state="normal")
         self._delete_btn.configure(state="normal")
+        self._retry_btn.configure(state="normal")
+        if self._tts_play_btn is not None:
+            self._tts_play_btn.configure(state="normal")
         self._render_detail(debate)
 
     def _render_detail(self, debate: Debate) -> None:
@@ -489,6 +541,88 @@ class HistoryView(ctk.CTkFrame):
     # アクション
     # ------------------------------------------------------------------
 
+    def _on_retry(self) -> None:
+        """選択中のディベートのテーマ・主張を複製してセットアップ画面に遷移する。"""
+        if self._selected_debate is None:
+            return
+
+        debate = self._selected_debate
+
+        # メインウィンドウを取得
+        main_window = self._get_main_window()
+        if main_window is None:
+            return
+
+        # セットアップビューを取得
+        setup_view = main_window._views.get("setup")
+        if setup_view is None:
+            return
+
+        # テーマ・主張・ラウンド数を複製
+        if hasattr(setup_view, "prefill_from_debate"):
+            setup_view.prefill_from_debate(
+                topic=debate.topic or debate.title,
+                proposal_x=debate.proposal_x or "",
+                proposal_y=debate.proposal_y or "",
+                judge_instruction=getattr(debate, "judge_instruction", "") or "",
+                max_rounds=debate.max_rounds,
+            )
+
+        # セットアップ画面に遷移
+        main_window.show_view("setup")
+
+    def _on_tts_toggle(self) -> None:
+        """TTS読み上げチェックボックスの切替。"""
+        if self._app and hasattr(self._app, "tts_service") and self._app.tts_service:
+            self._app.tts_service.set_enabled(self._tts_var.get())
+
+    def _on_tts_play_all(self) -> None:
+        """選択中のディベートの全発言を順次読み上げる。"""
+        if self._selected_debate is None:
+            return
+        if not (self._app and hasattr(self._app, "tts_service") and self._app.tts_service):
+            return
+
+        tts = self._app.tts_service
+
+        # TTSを有効化
+        if not tts.is_enabled:
+            tts.set_enabled(True)
+            self._tts_var.set(True)
+
+        # メッセージを取得
+        messages: list[Message] = []
+        participants: list[Participant] = []
+        try:
+            if self._app.history_service:
+                messages = self._app.history_service.get_messages(self._selected_debate.id)
+                participants = self._app.history_service.get_participants(self._selected_debate.id)
+        except Exception:
+            return
+
+        participant_map: dict[str, Participant] = {p.id: p for p in participants}
+
+        # SPEECH と JUDGMENT メッセージのみ読み上げる
+        for msg in messages:
+            if msg.message_type in (MessageType.SPEECH, MessageType.JUDGMENT):
+                p = participant_map.get(msg.participant_id)
+                p_name = p.name if p else ""
+                tts.speak(msg.content, participant_name=p_name)
+
+    def _on_tts_stop(self) -> None:
+        """TTS読み上げを停止する。"""
+        if self._app and hasattr(self._app, "tts_service") and self._app.tts_service:
+            self._app.tts_service.stop()
+
+    def _get_main_window(self):
+        """メインウィンドウ (CTk) を取得する。"""
+        widget = self.master
+        while widget is not None:
+            if isinstance(widget, ctk.CTk):
+                return widget
+            widget = getattr(widget, "master", None)
+        return None
+
     def _on_thinking_toggle(self) -> None:
         """思考表示チェックボックスの切替。"""
         self._show_thinking = self._thinking_var.get()
@@ -569,6 +703,9 @@ class HistoryView(ctk.CTkFrame):
         self._detail_title.configure(text="ディベートを選択してください")
         self._export_btn.configure(state="disabled")
         self._delete_btn.configure(state="disabled")
+        self._retry_btn.configure(state="disabled")
+        if self._tts_play_btn is not None:
+            self._tts_play_btn.configure(state="disabled")
 
         # リスト再読み込み
         self._load_debates()

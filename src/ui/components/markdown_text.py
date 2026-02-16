@@ -1,21 +1,154 @@
 """Markdown対応テキスト表示ウィジェット
 
-CTkTextboxベースで太字・斜体・箇条書き・見出しを表示する。
+CTkFrameベースで太字・箇条書き・見出しを複数CTkLabelで表示する。
+CTkTextboxの内部スクロール問題を回避するため、Label方式を採用。
 """
 
 from __future__ import annotations
 
+import re
+
 import customtkinter as ctk
 
-from src.utils.markdown_parser import (
-    ParsedLine,
-    SpanStyle,
-    parse_markdown_lines,
-)
+
+def render_markdown_content(
+    parent: ctk.CTkBaseClass,
+    text: str,
+    text_color: str = "#ffffff",
+    font_size: int = 13,
+    wraplength: int = 500,
+) -> ctk.CTkFrame:
+    """Markdownテキストを複数ラベルで表示するフレームを生成する。
+
+    Parameters
+    ----------
+    parent : 親ウィジェット
+    text : Markdown含むテキスト
+    text_color : テキスト色
+    font_size : フォントサイズ
+    wraplength : ラップ幅
+
+    Returns
+    -------
+    CTkFrame : ラベルを含むフレーム
+    """
+    frame = ctk.CTkFrame(parent, fg_color="transparent")
+    frame.grid_columnconfigure(0, weight=1)
+
+    base_font = ctk.CTkFont(size=font_size)
+    bold_font = ctk.CTkFont(size=font_size, weight="bold")
+    heading_font = ctk.CTkFont(size=font_size + 2, weight="bold")
+
+    lines = text.split("\n")
+    row = 0
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            # 空行 → スペーサー
+            spacer = ctk.CTkLabel(frame, text="", height=6)
+            spacer.grid(row=row, column=0, sticky="w")
+            row += 1
+            continue
+
+        # 見出し (## ...)
+        heading_match = re.match(r"^(#{1,3})\s+(.+)$", stripped)
+        if heading_match:
+            content = _strip_inline_md(heading_match.group(2))
+            lbl = ctk.CTkLabel(
+                frame, text=content, text_color=text_color,
+                font=heading_font, anchor="w", justify="left",
+                wraplength=wraplength,
+            )
+            lbl.grid(row=row, column=0, sticky="w", pady=(2, 2))
+            row += 1
+            continue
+
+        # 箇条書き (- ... / * ...)
+        bullet_match = re.match(r"^[-*]\s+(.+)$", stripped)
+        if bullet_match:
+            content = bullet_match.group(1)
+            display = "  • " + _render_inline_display(content)
+            font = _pick_font_for_line(content, base_font, bold_font)
+            lbl = ctk.CTkLabel(
+                frame, text=display, text_color=text_color,
+                font=font, anchor="w", justify="left",
+                wraplength=wraplength,
+            )
+            lbl.grid(row=row, column=0, sticky="w")
+            row += 1
+            continue
+
+        # 番号付きリスト (1. ...)
+        num_match = re.match(r"^(\d+)[.)]\s+(.+)$", stripped)
+        if num_match:
+            number = num_match.group(1)
+            content = num_match.group(2)
+            display = f"  {number}. " + _render_inline_display(content)
+            font = _pick_font_for_line(content, base_font, bold_font)
+            lbl = ctk.CTkLabel(
+                frame, text=display, text_color=text_color,
+                font=font, anchor="w", justify="left",
+                wraplength=wraplength,
+            )
+            lbl.grid(row=row, column=0, sticky="w")
+            row += 1
+            continue
+
+        # 通常行
+        display = _render_inline_display(stripped)
+        font = _pick_font_for_line(stripped, base_font, bold_font)
+        lbl = ctk.CTkLabel(
+            frame, text=display, text_color=text_color,
+            font=font, anchor="w", justify="left",
+            wraplength=wraplength,
+        )
+        lbl.grid(row=row, column=0, sticky="w")
+        row += 1
+
+    return frame
 
 
-class MarkdownText(ctk.CTkTextbox):
-    """Markdownテキストをリッチ表示するウィジェット。"""
+def _strip_inline_md(text: str) -> str:
+    """インラインMarkdown記号を除去する。"""
+    result = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
+    result = re.sub(r"__(.+?)__", r"\1", result)
+    result = re.sub(r"\*(.+?)\*", r"\1", result)
+    result = re.sub(r"_(.+?)_", r"\1", result)
+    return result
+
+
+def _render_inline_display(text: str) -> str:
+    """インラインMarkdownを表示用テキストに変換する。
+
+    太字(**)や斜体(*)のマーカーを除去し、プレーンテキストにする。
+    CTkLabelは1ラベルで部分的にフォントを変えられないため、
+    マーカー除去のみ行い、全体的な太字判定は_pick_font_for_lineで行う。
+    """
+    return _strip_inline_md(text)
+
+
+def _pick_font_for_line(
+    raw_text: str,
+    base_font: ctk.CTkFont,
+    bold_font: ctk.CTkFont,
+) -> ctk.CTkFont:
+    """行の大部分が太字の場合はbold_fontを返す。"""
+    # **text** の部分がテキストの50%以上を占めるなら太字
+    bold_matches = re.findall(r"\*\*(.+?)\*\*", raw_text)
+    if not bold_matches:
+        bold_matches = re.findall(r"__(.+?)__", raw_text)
+    if bold_matches:
+        bold_len = sum(len(m) for m in bold_matches)
+        plain = _strip_inline_md(raw_text)
+        if plain and bold_len / len(plain) > 0.5:
+            return bold_font
+    return base_font
+
+
+# 後方互換のためクラスも公開（ただし中身はrender_markdown_contentのラッパー）
+class MarkdownText(ctk.CTkFrame):
+    """Markdownテキストをリッチ表示するウィジェット（CTkFrameベース）。"""
 
     def __init__(
         self,
@@ -26,92 +159,14 @@ class MarkdownText(ctk.CTkTextbox):
         wrap_width: int = 500,
         **kwargs,
     ) -> None:
-        # 高さを自動調整するため、初期高さは小さく設定
-        super().__init__(
-            master,
-            fg_color="transparent",
-            wrap="word",
-            activate_scrollbars=False,
-            width=wrap_width,
-            height=20,  # 初期値（後で自動調整）
-            **kwargs,
+        super().__init__(master, fg_color="transparent", **kwargs)
+        self.grid_columnconfigure(0, weight=1)
+
+        inner = render_markdown_content(
+            self,
+            text=text,
+            text_color=text_color,
+            font_size=font_size,
+            wraplength=wrap_width,
         )
-
-        self._text_color = text_color
-        self._font_size = font_size
-
-        # タグの設定
-        self._setup_tags()
-
-        # テキストの挿入
-        self._insert_markdown(text)
-
-        # 読み取り専用にする
-        self.configure(state="disabled")
-
-        # 高さの自動調整（テキスト挿入後にスケジュール）
-        self.after(10, self._auto_resize)
-
-    def _setup_tags(self) -> None:
-        """テキストタグ（スタイル）を設定する。"""
-        base_font = ctk.CTkFont(size=self._font_size)
-        bold_font = ctk.CTkFont(size=self._font_size, weight="bold")
-        italic_font = ctk.CTkFont(size=self._font_size, slant="italic")
-        heading_font = ctk.CTkFont(size=self._font_size + 2, weight="bold")
-
-        self._textbox.tag_configure("normal", foreground=self._text_color, font=base_font)
-        self._textbox.tag_configure("bold", foreground=self._text_color, font=bold_font)
-        self._textbox.tag_configure("italic", foreground=self._text_color, font=italic_font)
-        self._textbox.tag_configure("heading", foreground=self._text_color, font=heading_font)
-        self._textbox.tag_configure("indent", lmargin1=20, lmargin2=30)
-        self._textbox.tag_configure("marker", foreground=self._text_color, font=bold_font)
-
-    def _insert_markdown(self, text: str) -> None:
-        """パースしたMarkdownテキストを挿入する。"""
-        lines = parse_markdown_lines(text)
-
-        for i, line in enumerate(lines):
-            if i > 0:
-                self._textbox.insert("end", "\n")
-
-            # 箇条書きのマーカー
-            if line.is_list_item:
-                self._textbox.insert("end", f"  {line.list_marker} ", ("marker", "indent"))
-
-            # スパンを挿入
-            for span in line.spans:
-                tag = self._span_style_to_tag(span.style)
-                tags = (tag,)
-                if line.indent > 0 and not line.is_list_item:
-                    tags = (tag, "indent")
-                self._textbox.insert("end", span.text, tags)
-
-    def _span_style_to_tag(self, style: SpanStyle) -> str:
-        """SpanStyleをタグ名に変換する。"""
-        return {
-            SpanStyle.NORMAL: "normal",
-            SpanStyle.BOLD: "bold",
-            SpanStyle.ITALIC: "italic",
-            SpanStyle.HEADING: "heading",
-        }.get(style, "normal")
-
-    def _auto_resize(self) -> None:
-        """テキスト内容に合わせて高さを自動調整する。"""
-        try:
-            # 行数を取得
-            self._textbox.update_idletasks()
-            # テキストの最終行のインデックスを取得
-            end_index = self._textbox.index("end-1c")
-            num_lines = int(end_index.split(".")[0])
-
-            # 行の高さを推定（フォントサイズ + 行間）
-            line_height = self._font_size + 6
-            # wrap による追加行を考慮
-            estimated_height = max(num_lines * line_height + 10, 30)
-            # 最大高さを制限
-            max_height = 800
-            final_height = min(estimated_height, max_height)
-
-            self.configure(height=final_height)
-        except Exception:
-            pass
+        inner.grid(row=0, column=0, sticky="ew")

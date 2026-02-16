@@ -715,6 +715,29 @@ class SetupView(ctk.CTkFrame):
 
         show_error(self, msg)
 
+    def prefill_from_debate(self, topic: str, proposal_x: str, proposal_y: str,
+                            judge_instruction: str = "", max_rounds: int = 5) -> None:
+        """過去のディベートからテーマ・主張を複製して設定画面に事前入力する。"""
+        # テーマ
+        self._topic_entry.delete(0, "end")
+        self._topic_entry.insert(0, topic)
+
+        # 主張X（参加者A）
+        self._section_a._proposal_text.delete("1.0", "end")
+        self._section_a._proposal_text.insert("1.0", proposal_x)
+
+        # 主張Y（参加者B）
+        self._section_b._proposal_text.delete("1.0", "end")
+        self._section_b._proposal_text.insert("1.0", proposal_y)
+
+        # 判定の観点（参加者C）
+        self._section_c._proposal_text.delete("1.0", "end")
+        self._section_c._proposal_text.insert("1.0", judge_instruction)
+
+        # 最大ラウンド
+        self._max_rounds_entry.delete(0, "end")
+        self._max_rounds_entry.insert(0, str(max_rounds))
+
     def on_show(self) -> None:
         """ビュー表示時にサブセクションのプリセット等を再読み込みする。"""
         self._section_a.on_show()
