@@ -332,6 +332,9 @@ class DebateService:
         )
 
         # LLM API呼び出し（ワーカースレッド専用event loopで実行、リトライ付き）
+        # max_tokens_per_turn は発言(speech)の目安であり、thinking含む全出力の制限ではない
+        # APIには十分大きな値を渡し、プロンプト側で発言量を指示する
+        api_max_tokens = max(participant.max_tokens_per_turn * 4, 4096)
         max_retries = 3
         response = None
         for attempt in range(max_retries):
@@ -341,7 +344,7 @@ class DebateService:
                         provider_id=participant.llm_provider,
                         system_prompt=system_prompt,
                         messages=history,
-                        max_tokens=participant.max_tokens_per_turn,
+                        max_tokens=api_max_tokens,
                     )
                 )
                 break
@@ -490,6 +493,19 @@ class DebateService:
         """最大ラウンド到達時にCに最終判定を求める。"""
         if self._on_turn_start:
             self._on_turn_start(judge)
+
+        # 最終判定を促すシステムメッセージを会話に追加
+        final_prompt_msg = Message(
+            debate_id=self._debate.id,
+            participant_id="system",
+            round_number=self._debate.current_round,
+            message_type=MessageType.SPEECH,
+            content="【システム】最終ラウンドに到達しました。判定者Cは最終判定を下してください。"
+                    "「【判定】」と「【理由】」を含む発言で、どちらの案を支持するか明確に述べてください。"
+                    "SKIPは許可されません。",
+            token_count=0,
+        )
+        self._messages.append(final_prompt_msg)
 
         # 強制判定プロンプトを追加して実行
         self._execute_llm_turn(judge)

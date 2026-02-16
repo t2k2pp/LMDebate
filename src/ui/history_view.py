@@ -10,6 +10,7 @@ import customtkinter as ctk
 from src.models.debate import Debate, DebateStatus
 from src.models.message import Message, MessageType
 from src.models.participant import Participant, ParticipantRole, ParticipantType
+from src.ui.components.message_bubble import _ROLE_COLORS, _SKIP_COLORS
 from src.ui.components.thinking_panel import ThinkingPanel
 
 if TYPE_CHECKING:
@@ -387,29 +388,79 @@ class HistoryView(ctk.CTkFrame):
         if participant is None:
             return row
 
-        block = ctk.CTkFrame(self._detail_scroll, corner_radius=6)
-        block.grid(row=row, column=0, sticky="ew", padx=8, pady=2)
-        block.grid_columnconfigure(0, weight=1)
-
-        block_row = 0
-
-        # ヘッダー
+        # ロール別の色を取得
         role_short = {
             ParticipantRole.PROPOSER_A: "A",
             ParticipantRole.PROPOSER_B: "B",
             ParticipantRole.JUDGE: "C",
         }
-        header = f"{role_short.get(participant.role, '?')} ({participant.name})"
-        ctk.CTkLabel(
-            block,
-            text=header,
-            font=ctk.CTkFont(size=12, weight="bold"),
-            anchor="w",
-        ).grid(row=block_row, column=0, sticky="w", padx=8, pady=(6, 2))
+        role_key = role_short.get(participant.role, "A")
+
+        is_skip = msg_type == MessageType.SKIP
+        if is_skip:
+            colors = _SKIP_COLORS
+            bg_color = colors.get("bg", "#2b2b2b")
+        else:
+            colors = _ROLE_COLORS.get(role_key, _ROLE_COLORS["A"])
+            bg_color = colors["bg"]
+
+        block = ctk.CTkFrame(self._detail_scroll, corner_radius=10, fg_color=bg_color)
+        block.grid(row=row, column=0, sticky="ew", padx=8, pady=2)
+        block.grid_columnconfigure(0, weight=1)
+
+        block_row = 0
+
+        # ヘッダー（ディベートビューと同じスタイル）
+        header_frame = ctk.CTkFrame(block, fg_color="transparent")
+        header_frame.grid(row=block_row, column=0, sticky="ew", padx=10, pady=(8, 2))
+        header_frame.grid_columnconfigure(1, weight=1)
         block_row += 1
 
+        if is_skip:
+            # スキップ表示
+            ctk.CTkLabel(
+                header_frame,
+                text=f"（{participant.name} はこのラウンドをスキップしました）",
+                text_color=_SKIP_COLORS.get("fg", "#888888"),
+                font=ctk.CTkFont(size=12, slant="italic"),
+                anchor="w",
+            ).grid(row=0, column=0, columnspan=2, sticky="w")
+        else:
+            role_colors = _ROLE_COLORS.get(role_key, _ROLE_COLORS["A"])
+
+            # ロールバッジ
+            role_badge = ctk.CTkLabel(
+                header_frame,
+                text=f" {role_key} ",
+                fg_color=role_colors["label_bg"],
+                text_color=role_colors["label_fg"],
+                corner_radius=4,
+                font=ctk.CTkFont(size=12, weight="bold"),
+                width=28,
+                height=22,
+            )
+            role_badge.grid(row=0, column=0, sticky="w", padx=(0, 6))
+
+            # 参加者名
+            ctk.CTkLabel(
+                header_frame,
+                text=participant.name,
+                text_color=role_colors["name_fg"],
+                font=ctk.CTkFont(size=13, weight="bold"),
+                anchor="w",
+            ).grid(row=0, column=1, sticky="w")
+
+            # メッセージタイプ表示
+            if msg_type == MessageType.JUDGMENT:
+                ctk.CTkLabel(
+                    header_frame,
+                    text="[判定]",
+                    text_color=role_colors["round_fg"],
+                    font=ctk.CTkFont(size=11),
+                ).grid(row=0, column=2, sticky="e")
+
         # 思考パネル
-        if thinking:
+        if thinking and not is_skip:
             p_name = participant.name if participant else ""
             panel = ThinkingPanel(block, thinking_text=thinking, participant_name=p_name)
             panel.grid(row=block_row, column=0, sticky="ew", padx=8, pady=2)
@@ -419,14 +470,17 @@ class HistoryView(ctk.CTkFrame):
             block_row += 1
 
         # 発言
-        if speech:
+        if speech and not is_skip:
+            role_colors = _ROLE_COLORS.get(role_key, _ROLE_COLORS["A"])
             ctk.CTkLabel(
                 block,
-                text=f"[発言] {speech}",
-                anchor="w",
+                text=speech,
+                text_color=role_colors["content_fg"],
+                font=ctk.CTkFont(size=13),
+                anchor="nw",
                 justify="left",
                 wraplength=500,
-            ).grid(row=block_row, column=0, sticky="w", padx=8, pady=(0, 6))
+            ).grid(row=block_row, column=0, sticky="w", padx=14, pady=(4, 10))
             block_row += 1
 
         return row + 1

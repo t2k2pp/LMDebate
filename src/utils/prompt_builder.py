@@ -91,7 +91,18 @@ def _build_proposer_prompt(
     max_tokens: int,
     search_results: list[SearchResult] | None = None,
 ) -> str:
-    lines = [f"あなたは「{proposal_label}」の推進者{role_label}です。"]
+    lines = [
+        f"あなたは公式ディベートの討論者{role_label}です。「{proposal_label}」を支持する立場として参加しています。",
+        "",
+        "【ディベートのルール】",
+        "- これは正式なディベート（討論）です。雑談や日常会話ではありません。",
+        "- あなたの唯一の目的は、判定者Cを説得して自分の案が優れていると認めさせることです。",
+        "- 相手（対立側）の主張に対して、論理的に反論してください。",
+        "- 具体的な根拠、データ、事例を挙げて自分の主張を裏付けてください。",
+        "- 相手の論点の弱点を指摘し、自分の主張の優位性を明確に示してください。",
+        "- 感情的にならず、論理的かつ説得力のある議論を展開してください。",
+        "- 相手の発言を無視せず、必ず反論または応答してから自分の主張を展開してください。",
+    ]
 
     if personality:
         lines.append(f"\n【あなたの性格】{personality}")
@@ -114,20 +125,23 @@ def _build_proposer_prompt(
     lines.append(f"\n【対立する主張（{opponent_label}）】{opponent_proposal}")
 
     lines.append(
-        f"\nあなたの目標は、判定者Cを説得して{proposal_label}が優れていると認めさせることです。"
+        f"\n【発言の指針】"
     )
-    if personality or guidelines:
-        lines.append("あなたの性格と行動指針に従って議論を展開してください。")
     if search_results:
-        lines.append("ウェブ検索結果を参考にして、具体的な根拠やデータを引用して議論を強化してください。")
-    lines.append(f"1回の発言は簡潔にまとめてください（目安: {max_tokens}トークン以内）。")
+        lines.append("- ウェブ検索結果を活用し、具体的な根拠やデータを引用して議論を強化してください。")
+    lines.append(f"- <speech>内の発言は{max_tokens}トークン程度に収めてください。")
+    lines.append("- <thinking>内では自由に思考を整理してください（長さ制限なし）。")
 
     lines.append("\n必ず日本語で回答してください。")
 
     lines.append(
         "\n以下の形式で回答してください:\n"
-        "<thinking>ここにあなたの思考過程を記述</thinking>\n"
-        "<speech>ここに発言を記述</speech>"
+        "<thinking>\n"
+        "（ここで相手の発言を分析し、反論のポイントを整理し、自分の主張を組み立てる）\n"
+        "</thinking>\n"
+        "<speech>\n"
+        "（ここにディベートの発言を記述。相手への反論と自分の主張を論理的に展開する）\n"
+        "</speech>"
     )
 
     return "\n".join(lines)
@@ -144,7 +158,20 @@ def _build_judge_prompt(
     max_tokens: int,
     search_results: list[SearchResult] | None = None,
 ) -> str:
-    lines = ["あなたは判定者Cです。AとBの議論を聞いています。"]
+    lines = [
+        "あなたは公式ディベートの判定者（審判）Cです。",
+        "",
+        "【審判としてのルール】",
+        "- これは正式なディベート（討論）です。あなたは審判であり、討論者ではありません。",
+        "- 審判は基本的に発言しません。討論者AとBの議論を黙って聞いてください。",
+        "- 通常のラウンドでは「SKIP」してください。これがデフォルトの行動です。",
+        "- 以下の場合のみ発言が許可されます：",
+        "  1. 議論のルール違反があった場合（人身攻撃、論点のすり替え等）",
+        "  2. 議論の方向性が完全にテーマから外れた場合",
+        "  3. 最終判定を下す場合",
+        "- 質問や意見を述べる必要はありません。判定に必要な情報は討論者の発言から得てください。",
+        "- 十分に議論が尽くされたと判断したら、最終判定を下してください。",
+    ]
 
     if personality:
         lines.append(f"\n【あなたの性格】{personality}")
@@ -168,22 +195,32 @@ def _build_judge_prompt(
         lines.append(f"\n--- ウェブ検索結果 ---\n{search_text}\n--- ウェブ検索結果ここまで ---")
 
     lines.append(
-        f"\n今のラウンドで質問や意見がある場合は発言してください（目安: {max_tokens}トークン以内）。\n"
-        '特になければ "<speech>SKIP</speech>" と回答してください。\n'
-        "\n十分に議論が尽くされ、判定を下せると判断した場合は:\n"
-        "<speech>\n"
-        "【判定】AまたはBの案を支持します。\n"
-        "【理由】判定理由\n"
-        "</speech>\n"
-        "と回答してください。"
+        "\n【回答方法】"
+        "\n■ 通常（デフォルト）: 発言せずスキップ"
+        '\n  → "<speech>SKIP</speech>" と回答してください。ほとんどのラウンドではこれが正しい行動です。'
+        "\n"
+        "\n■ ルール違反や脱線への指摘が必要な場合のみ:"
+        f"\n  → <speech>内に短い指摘を記述（{max_tokens}トークン以内）"
+        "\n"
+        "\n■ 最終判定を下す場合:"
+        "\n  → 以下の形式で回答してください:"
+        "\n  <speech>"
+        "\n  【判定】案X（A）または案Y（B）を支持します。"
+        "\n  【理由】判定理由を論理的に説明"
+        "\n  </speech>"
     )
 
     lines.append("\n必ず日本語で回答してください。")
 
     lines.append(
         "\n以下の形式で回答してください:\n"
-        "<thinking>ここにあなたの思考過程を記述</thinking>\n"
-        "<speech>ここに発言を記述（またはSKIP）</speech>"
+        "<thinking>\n"
+        "（ここで両者の議論を分析し、それぞれの論点の強弱を評価する。判定を下すべきか検討する）\n"
+        "</thinking>\n"
+        "<speech>\n"
+        "SKIP\n"
+        "（通常はSKIPです。指摘や最終判定が必要な場合のみ発言内容を記述）\n"
+        "</speech>"
     )
 
     return "\n".join(lines)
