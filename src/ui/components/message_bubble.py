@@ -139,16 +139,16 @@ class MessageBubble(ctk.CTkFrame):
         # --- メッセージ本文 ---
         if is_skip:
             content_text = f"（{participant_name} はこのラウンドをスキップしました）"
-            content_label = ctk.CTkLabel(
+            self._skip_label = ctk.CTkLabel(
                 self,
                 text=content_text,
                 text_color=_SKIP_COLORS["fg"],
                 font=ctk.CTkFont(size=12, slant="italic"),
-                wraplength=500,
+                wraplength=800,
                 justify="left",
                 anchor="w",
             )
-            content_label.pack(fill="x", padx=14, pady=(4, 10))
+            self._skip_label.pack(fill="x", padx=14, pady=(4, 10))
         else:
             role_colors = _ROLE_COLORS.get(self._role_label, _ROLE_COLORS["A"])
             content_fg = role_colors["content_fg"]
@@ -158,11 +158,11 @@ class MessageBubble(ctk.CTkFrame):
                 content_fg = role_colors["round_fg"]
 
             # Markdown対応テキスト表示
-            md_text = MarkdownText(
+            self._md_text = MarkdownText(
                 self,
                 text=content,
                 text_color=content_fg,
                 font_size=13,
-                wrap_width=500,
+                wrap_width=800,
             )
-            md_text.pack(fill="x", padx=14, pady=(4, 10))
+            self._md_text.pack(fill="x", padx=14, pady=(4, 10))

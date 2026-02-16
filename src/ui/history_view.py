@@ -290,7 +290,7 @@ class HistoryView(ctk.CTkFrame):
                 meta_frame, text=f"{k}:", font=ctk.CTkFont(weight="bold"), anchor="nw"
             ).grid(row=mi, column=0, sticky="nw", padx=(8, 4), pady=2)
             ctk.CTkLabel(
-                meta_frame, text=v or "(なし)", anchor="w", wraplength=400
+                meta_frame, text=v or "(なし)", anchor="w", wraplength=700
             ).grid(row=mi, column=1, sticky="w", padx=4, pady=2)
         row += 1
 
@@ -423,7 +423,7 @@ class HistoryView(ctk.CTkFrame):
                     verdict_frame,
                     text=f"{name}: {jm.content}",
                     anchor="w",
-                    wraplength=500,
+                    wraplength=700,
                     justify="left",
                 ).grid(row=2 + ji, column=0, sticky="w", padx=8, pady=(0, 6))
 
@@ -530,7 +530,7 @@ class HistoryView(ctk.CTkFrame):
                 text=speech,
                 text_color=role_colors["content_fg"],
                 font_size=13,
-                wrap_width=500,
+                wrap_width=800,
             )
             md_text.grid(row=block_row, column=0, sticky="ew", padx=14, pady=(4, 10))
             block_row += 1

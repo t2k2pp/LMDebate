@@ -169,10 +169,10 @@ class DebateView(ctk.CTkFrame):
         self._progress_bar.grid(row=1, column=0, sticky="ew", padx=8, pady=2)
         self._progress_bar.set(0)
 
-        self._remaining_label = ctk.CTkLabel(
-            self._progress_frame, text="残りラウンド: -", anchor="w"
+        self._round_info_label = ctk.CTkLabel(
+            self._progress_frame, text="ラウンド: - / -", anchor="w"
         )
-        self._remaining_label.grid(row=2, column=0, sticky="w", padx=8, pady=(2, 6))
+        self._round_info_label.grid(row=2, column=0, sticky="w", padx=8, pady=(2, 6))
 
         # --- 入力エリア ---
         self._input_frame = ctk.CTkFrame(self, height=80)
@@ -231,6 +231,13 @@ class DebateView(ctk.CTkFrame):
         self._update_round_display()
         self._clear_chat()
         self._build_participant_cards(participants)
+
+        # 全員LLMなら人間入力エリアを非表示
+        all_llm = all(p.type == ParticipantType.LLM for p in participants)
+        if all_llm:
+            self._input_frame.grid_remove()
+        else:
+            self._input_frame.grid()
 
         # DebateServiceのコールバック設定
         if self._app and hasattr(self._app, "debate_service") and self._app.debate_service:
@@ -597,8 +604,7 @@ class DebateView(ctk.CTkFrame):
         progress = current / maximum if maximum > 0 else 0
         self._progress_bar.set(progress)
 
-        remaining = maximum - current
-        self._remaining_label.configure(text=f"残りラウンド: {remaining}")
+        self._round_info_label.configure(text=f"ラウンド: {current} / {maximum}")
 
     def _scroll_to_bottom(self) -> None:
         """チャットスクロールを最下部に移動する。"""

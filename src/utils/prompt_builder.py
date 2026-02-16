@@ -115,9 +115,15 @@ def _build_proposer_prompt(
     ]
 
     if max_rounds > 0:
-        lines.append(f"- このディベートは全{max_rounds}ラウンドあります。現在ラウンド{current_round}です。")
-        lines.append("- 1回の発言で全てを語り尽くさず、複数ラウンドに分けて戦略的に議論を展開してください。")
-        lines.append("- 各ラウンドでは1〜2個の論点に絞って、深く議論してください。")
+        remaining = max_rounds - current_round
+        lines.append(f"- このディベートは全{max_rounds}ラウンドです。現在ラウンド{current_round}、残り{remaining}回の発言機会があります。")
+        if remaining > 1:
+            lines.append("- 1回の発言で全てを語り尽くさず、複数ラウンドに分けて戦略的に議論を展開してください。")
+            lines.append("- 各ラウンドでは1〜2個の論点に絞って、深く議論してください。")
+        elif remaining == 1:
+            lines.append("- 次のラウンドが最後の発言機会です。最も重要な論点に集中してください。")
+        else:
+            lines.append("- これが最後の発言機会です。最も説得力のある主張をまとめてください。")
 
     if personality:
         lines.append(f"\n【あなたの性格】{personality}")
@@ -144,6 +150,8 @@ def _build_proposer_prompt(
     )
     if search_results:
         lines.append("- ウェブ検索結果を活用し、具体的な根拠やデータを引用して議論を強化してください。")
+        lines.append("- 相手が提示したデータや主張が正確かどうか疑わしい場合は、検索結果で裏取りし、誤りがあれば指摘してください。")
+        lines.append("- 相手の主張を鵜呑みにせず、事実確認を行うことは適切なディベート戦略です。")
     lines.append(f"- <speech>内の発言は厳密に{max_tokens}トークン以内に収めてください。これは絶対的な制限です。")
     lines.append(f"- 目安: 日本語で約{max_tokens // 2}文字（約{max_tokens // 50}〜{max_tokens // 30}文程度の段落）。")
     lines.append("- 長い番号付きリストや箇条書きの羅列は禁止です。1〜2個の論点に絞り、簡潔に主張してください。")
