@@ -828,42 +828,19 @@ class SettingsView(ctk.CTkFrame):
 
     def _run_test_searxng(self, url: str) -> None:
         """SearXNG 接続テストの実行（ワーカースレッド）。"""
-        success = False
-        error_msg = ""
-        try:
-            import httpx
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,application/json;q=0.8,*/*;q=0.7",
-                "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
-            }
-            with httpx.Client(timeout=10.0, headers=headers) as client:
-                response = client.get(
-                    f"{url.rstrip('/')}/search",
-                    params={"q": "test", "format": "json", "categories": "general"},
-                )
-                response.raise_for_status()
-                data = response.json()
-                # レスポンスに results キーがあれば成功
-                if "results" in data:
-                    success = True
-                else:
-                    error_msg = "予期しないレスポンス形式"
-        except ImportError:
-            error_msg = "httpx パッケージが未インストール"
-        except Exception as e:
-            error_msg = str(e)
+        from src.services.search_service import SearchService
+        svc = SearchService()
+        success, msg = svc.test_connection(url)
+        self.after(0, self._show_test_searxng_result, success, msg)
 
-        self.after(0, self._show_test_searxng_result, success, error_msg)
-
-    def _show_test_searxng_result(self, success: bool, error_msg: str) -> None:
+    def _show_test_searxng_result(self, success: bool, msg: str) -> None:
         """SearXNG 接続テスト結果をUIに反映する。"""
         self._searxng_test_btn.configure(state="normal")
         if success:
-            self._searxng_status_label.configure(text="接続OK", text_color="green")
+            self._searxng_status_label.configure(text=msg, text_color="green")
         else:
             self._searxng_status_label.configure(
-                text=f"接続失敗: {error_msg}", text_color="red"
+                text=f"接続失敗: {msg}", text_color="red"
             )
 
     def _on_save_searxng(self) -> None:
