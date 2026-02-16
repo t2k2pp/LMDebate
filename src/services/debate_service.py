@@ -57,6 +57,7 @@ class DebateService:
         self._running = False
         self._paused = False
         self._worker_thread: threading.Thread | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
 
         # UIコールバック
         self._on_message: Callable[[Message, Participant], None] | None = None
@@ -161,6 +162,10 @@ class DebateService:
         if debate is None:
             return
 
+        # ワーカースレッド専用のevent loopを作成・維持する
+        self._loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._loop)
+
         try:
             while self._running and debate.current_round < debate.max_rounds:
                 # 一時停止チェック
@@ -224,6 +229,13 @@ class DebateService:
             self._running = False
             if self._on_error:
                 self._on_error(str(e))
+        finally:
+            # ワーカースレッド専用loopをクリーンアップ
+            try:
+                self._loop.close()
+            except Exception:
+                pass
+            self._loop = None
 
     def _generate_search_query(self, participant: Participant, debate: Debate) -> str:
         """LLMに検索クエリを生成させる。"""
@@ -249,8 +261,7 @@ class DebateService:
             query_prompt += "\n\n最近の議論:\n" + "\n".join(context_parts)
 
         try:
-            loop = asyncio.new_event_loop()
-            response = loop.run_until_complete(
+            response = self._loop.run_until_complete(
                 self._llm.generate(
                     provider_id=participant.llm_provider,
                     system_prompt=query_prompt,
@@ -259,7 +270,6 @@ class DebateService:
                     temperature=0.3,
                 )
             )
-            loop.close()
             query = response.content.strip().strip('"').strip("'")
             logger.info("検索クエリ生成: participant=%s, query=%r", participant.name, query)
             return query
@@ -321,22 +331,36 @@ class DebateService:
             include_own_thinking=participant.include_own_thinking,
         )
 
-        # LLM API呼び出し（同期的にasyncを実行）
-        try:
-            loop = asyncio.new_event_loop()
-            response = loop.run_until_complete(
-                self._llm.generate(
-                    provider_id=participant.llm_provider,
-                    system_prompt=system_prompt,
-                    messages=history,
-                    max_tokens=participant.max_tokens_per_turn,
+        # LLM API呼び出し（ワーカースレッド専用event loopで実行、リトライ付き）
+        max_retries = 3
+        response = None
+        for attempt in range(max_retries):
+            try:
+                response = self._loop.run_until_complete(
+                    self._llm.generate(
+                        provider_id=participant.llm_provider,
+                        system_prompt=system_prompt,
+                        messages=history,
+                        max_tokens=participant.max_tokens_per_turn,
+                    )
                 )
-            )
-            loop.close()
-        except Exception as e:
-            if self._on_error:
-                self._on_error(f"LLMエラー ({participant.name}): {e}")
-            return
+                break
+            except Exception as e:
+                logger.warning(
+                    "LLM API呼び出し失敗 (試行%d/%d, %s): %s",
+                    attempt + 1, max_retries, participant.name, e,
+                )
+                if attempt < max_retries - 1:
+                    import time
+                    wait_sec = 2 ** attempt  # 1s, 2s
+                    logger.info("リトライまで%d秒待機...", wait_sec)
+                    time.sleep(wait_sec)
+                else:
+                    if self._on_error:
+                        self._on_error(
+                            f"LLMエラー ({participant.name}): {max_retries}回試行後も失敗 - {e}"
+                        )
+                    return
 
         # レスポンスパース
         thinking, speech = parse_llm_response(response.content)

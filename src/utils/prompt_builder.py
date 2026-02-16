@@ -122,6 +122,8 @@ def _build_proposer_prompt(
         lines.append("ウェブ検索結果を参考にして、具体的な根拠やデータを引用して議論を強化してください。")
     lines.append(f"1回の発言は簡潔にまとめてください（目安: {max_tokens}トークン以内）。")
 
+    lines.append("\n必ず日本語で回答してください。")
+
     lines.append(
         "\n以下の形式で回答してください:\n"
         "<thinking>ここにあなたの思考過程を記述</thinking>\n"
@@ -175,6 +177,8 @@ def _build_judge_prompt(
         "</speech>\n"
         "と回答してください。"
     )
+
+    lines.append("\n必ず日本語で回答してください。")
 
     lines.append(
         "\n以下の形式で回答してください:\n"

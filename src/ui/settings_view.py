@@ -194,10 +194,20 @@ class SettingsView(ctk.CTkFrame):
         )
         self._searxng_url_entry.grid(row=2, column=0, sticky="ew", padx=8, pady=(0, 4))
 
-        self._searxng_save_btn = ctk.CTkButton(
-            searxng_frame, text="保存", width=80, command=self._on_save_searxng,
+        searxng_btn_frame = ctk.CTkFrame(searxng_frame, fg_color="transparent")
+        searxng_btn_frame.grid(row=2, column=1, sticky="e", padx=(4, 8), pady=(0, 4))
+
+        self._searxng_test_btn = ctk.CTkButton(
+            searxng_btn_frame, text="接続確認", width=80,
+            fg_color="gray40", hover_color="gray30",
+            command=self._on_test_searxng,
         )
-        self._searxng_save_btn.grid(row=2, column=1, sticky="e", padx=(4, 8), pady=(0, 4))
+        self._searxng_test_btn.pack(side="left", padx=(0, 4))
+
+        self._searxng_save_btn = ctk.CTkButton(
+            searxng_btn_frame, text="保存", width=80, command=self._on_save_searxng,
+        )
+        self._searxng_save_btn.pack(side="left")
 
         self._searxng_status_label = ctk.CTkLabel(
             searxng_frame, text="", anchor="w",
@@ -797,6 +807,59 @@ class SettingsView(ctk.CTkFrame):
     # ==================================================================
     # ライフサイクル
     # ==================================================================
+
+    def _on_test_searxng(self) -> None:
+        """SearXNG 接続確認ボタン。"""
+        url = self._searxng_url_entry.get().strip()
+        if not url:
+            self._searxng_status_label.configure(
+                text="ベースURLを入力してください", text_color="orange"
+            )
+            return
+
+        self._searxng_test_btn.configure(state="disabled")
+        self._searxng_status_label.configure(text="接続確認中...", text_color="gray")
+
+        # ワーカースレッドで実行
+        thread = threading.Thread(
+            target=self._run_test_searxng, args=(url,), daemon=True
+        )
+        thread.start()
+
+    def _run_test_searxng(self, url: str) -> None:
+        """SearXNG 接続テストの実行（ワーカースレッド）。"""
+        success = False
+        error_msg = ""
+        try:
+            import httpx
+            with httpx.Client(timeout=10.0) as client:
+                response = client.get(
+                    f"{url.rstrip('/')}/search",
+                    params={"q": "test", "format": "json"},
+                )
+                response.raise_for_status()
+                data = response.json()
+                # レスポンスに results キーがあれば成功
+                if "results" in data:
+                    success = True
+                else:
+                    error_msg = "予期しないレスポンス形式"
+        except ImportError:
+            error_msg = "httpx パッケージが未インストール"
+        except Exception as e:
+            error_msg = str(e)
+
+        self.after(0, self._show_test_searxng_result, success, error_msg)
+
+    def _show_test_searxng_result(self, success: bool, error_msg: str) -> None:
+        """SearXNG 接続テスト結果をUIに反映する。"""
+        self._searxng_test_btn.configure(state="normal")
+        if success:
+            self._searxng_status_label.configure(text="接続OK", text_color="green")
+        else:
+            self._searxng_status_label.configure(
+                text=f"接続失敗: {error_msg}", text_color="red"
+            )
 
     def _on_save_searxng(self) -> None:
         """SearXNG URL保存ボタン。"""
